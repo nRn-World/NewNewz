@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import Compare from './Compare'
-import { type Place, type Quiet, QUIET0, label } from './lib'
+import { type Place, type Quiet, QUIET0, getWorkerUrl, label, setWorkerUrl } from './lib'
 import { TOPICS } from './topics'
 
 type T = (k: string, v?: Record<string, string>) => string
@@ -43,6 +43,7 @@ export default function FavsPanel({
   t,
 }: Props) {
   const [favCat, setFavCat] = useState('')
+  const [workerDraft, setWorkerDraft] = useState(getWorkerUrl)
   const [newCat, setNewCat] = useState<string | null>(null)
   const [confirmCat, setConfirmCat] = useState<string | null>(null)
   const [drag, setDrag] = useState<{ name: string; x: number; y: number } | null>(null)
@@ -363,6 +364,23 @@ export default function FavsPanel({
           }}
         >
           <input value={srcDraft} onChange={(e) => setSrcDraft(e.target.value)} placeholder={t('addSource')} aria-label={t('addSource')} />
+        </form>
+        <h4 style={{ marginTop: 8 }}>{t('workerLabel')}</h4>
+        <form
+          className="row"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setWorkerUrl(workerDraft)
+            location.reload()
+          }}
+        >
+          <input
+            value={workerDraft}
+            onChange={(e) => setWorkerDraft(e.target.value)}
+            placeholder="https://newzlocal-proxy.<subdomain>.workers.dev"
+            aria-label={t('workerLabel')}
+          />
+          <button type="submit">OK</button>
         </form>
       </div>
 

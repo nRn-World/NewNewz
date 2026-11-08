@@ -1,5 +1,6 @@
-// Cloudflare Worker: hardened CORS proxy (/bn, /rd, /fb, /gnews, /nd) + RFC 8291 / VAPID Web Push background alerts.
+// Cloudflare Worker: hardened CORS proxy (/gn, /bn, /rd, /fb, /meneame, /eksi, /meta, /gnews, /nd) + RFC 8291 / VAPID Web Push background alerts.
 const ORIGINS = {
+  '/gn': 'https://news.google.com',
   '/bn': 'https://www.bing.com',
   '/rd': 'https://www.reddit.com',
   '/fb': 'https://www.flashback.org',
@@ -198,6 +199,96 @@ export default {
         return new Response(r.body, { status: r.status, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=600' } })
       } catch {
         return new Response('Upstream timeout', { status: 502, headers: cors })
+      }
+    }
+
+    // --- Reader card metadata (/meta?url=...) with strict SSRF protection ---
+    if (url.pathname === '/meta' && req.method === 'GET') {
+      const targetStr = url.searchParams.get('url') ?? ''
+      let parsed
+      try {
+        parsed = new URL(targetStr)
+      } catch {
+        return new Response('Invalid URL', { status: 400, headers: cors })
+      }
+      const host = parsed.hostname.toLowerCase()
+      const blockedHost =
+        parsed.protocol !== 'https:' ||
+        host === 'localhost' ||
+        host.endsWith('.local') ||
+        host.endsWith('.internal') ||
+        /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) ||
+        host.includes(':')
+      if (blockedHost) return new Response('Forbidden host', { status: 403, headers: cors })
+      try {
+        const r = await fetch(parsed, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalReader/1.0)' },
+          cf: { cacheTtl: 1800, cacheEverything: true },
+          signal: AbortSignal.timeout(5000),
+        })
+        if (!r.ok) return new Response('{}', { headers: { ...cors, 'Content-Type': 'application/json' } })
+        const html = (await r.text()).slice(0, 65_000)
+        const pickMeta = (re) => {
+          const m = html.match(re)
+          return m ? m[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').trim() : ''
+        }
+        const description =
+          pickMeta(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ||
+          pickMeta(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i) ||
+          pickMeta(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)
+        const image =
+          pickMeta(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+          pickMeta(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
+        return new Response(JSON.stringify({ description, image }), {
+          headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=1800' },
+        })
+      } catch {
+        return new Response('{}', { headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+    }
+
+    // --- Regional Forums: Menéame (ES) & Ekşi Sözlük (TR) ---
+    if (url.pathname === '/meneame' && req.method === 'GET') {
+      const q = url.searchParams.get('q') ?? ''
+      try {
+        const r = await fetch(`https://www.meneame.net/rss?q=${encodeURIComponent(q)}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          cf: { cacheTtl: 180, cacheEverything: true },
+          signal: AbortSignal.timeout(6000),
+        })
+        return new Response(r.body, {
+          status: r.status,
+          headers: { ...cors, 'Content-Type': 'application/rss+xml; charset=utf-8', 'Cache-Control': 'public, max-age=180' },
+        })
+      } catch {
+        return new Response('Upstream error', { status: 502, headers: cors })
+      }
+    }
+
+    if (url.pathname === '/eksi' && req.method === 'GET') {
+      const q = url.searchParams.get('q') ?? ''
+      try {
+        const r = await fetch(
+          `https://www.bing.com/search?q=${encodeURIComponent(`site:eksisozluk.com "${q}"`)}&format=rss`,
+          {
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            cf: { cacheTtl: 300, cacheEverything: true },
+            signal: AbortSignal.timeout(6000),
+          },
+        )
+        const xml = await r.text()
+        const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 20).map((m) => {
+          const block = m[1]
+          const title = (block.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '').replace(/<!\[CDATA\[|\]\]>/g, '').replace(/\s*-\s*ekşi sözlük.*$/i, '').trim()
+          const link = (block.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? '').trim()
+          const pubDate = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1] ?? '').trim()
+          return { title, url: link, date: pubDate || undefined }
+        }).filter((x) => x.title && x.url.includes('eksisozluk.com'))
+        return new Response(JSON.stringify({ items }), {
+          headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' },
+        })
+      } catch {
+        return new Response(JSON.stringify({ items: [] }), { headers: { ...cors, 'Content-Type': 'application/json' } })
       }
     }
 

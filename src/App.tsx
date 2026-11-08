@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { norm } from './areas'
+import { type SavedArticle, loadSaved, toggleSavedItem } from './bookmarks'
+import { exportClipCard } from './clipCard'
 import FavsPanel from './FavsPanel'
 import { Flag } from './Flags'
 import { LANGS, type Lang, loadLang, saveLang, tr } from './i18n'
@@ -7,6 +9,7 @@ import { ProgressBox, Report, TimeTravel, TopicBar } from './Insights'
 import {
   type Article,
   type Place,
+  fetchReaderPreview,
   forum,
   inQuiet,
   label,
@@ -26,11 +29,14 @@ import {
   syncPushSubscription,
   translate,
 } from './lib'
+import { type MapMode, loadMapMode, saveMapMode } from './mapStyle'
 import { type Street, streets } from './overpass'
 import Paper from './Paper'
 import { topicsOf } from './topics'
+import Trending from './Trending'
 import { encodePlace, readHashPlace } from './urlState'
 import { type SheetSnap, useGlobe } from './useGlobe'
+import { type LocalWeather, fetchWeather } from './weather'
 import './index.css'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -57,14 +63,18 @@ export default function App() {
   const [feedPct, setFeedPct] = useState(20)
   const [err, setErr] = useState('')
   const [favs, setFavs] = useState<Place[]>(loadFavs)
+  const [saved, setSaved] = useState<SavedArticle[]>(loadSaved)
   const [lang, setLang] = useState<Lang>(loadLang)
   const langRef = useRef(lang)
+  const [mapMode, setMapMode] = useState<MapMode>(loadMapMode)
   const [tick, setTick] = useState(0)
   const [stamp, setStamp] = useState<Date | null>(null)
   const shown = useRef('')
-  const [tab, setTab] = useState<'news' | 'forum' | 'favs'>('news')
+  const [tab, setTab] = useState<'news' | 'forum' | 'saved' | 'favs'>('news')
   const [paperOpen, setPaperOpen] = useState(false)
   const [topic, setTopic] = useState('')
+  const [newsFilter, setNewsFilter] = useState('')
+  const [sortBy, setSortBy] = useState<'new' | 'hot'>('new')
   const [months, setMonths] = useState(0)
   const [mine, setMine] = useState<Article[] | null>(null)
   const [mineBusy, setMineBusy] = useState(false)
@@ -76,6 +86,9 @@ export default function App() {
   const [freshArts, setFreshArts] = useState<Record<string, Article[]>>({})
   const [only, setOnly] = useState<{ key: string; items: Article[] } | null>(null)
   const [expandedAlso, setExpandedAlso] = useState<Record<string, boolean>>({})
+  const [readerOpen, setReaderOpen] = useState<Record<string, boolean>>({})
+  const [readerData, setReaderData] = useState<Record<string, { loading?: boolean; summary?: string; image?: string }>>({})
+  const [wxState, setWxState] = useState<{ key: string; data: LocalWeather } | null>(null)
   const [perm, setPerm] = useState<string>(() => ('Notification' in window ? Notification.permission : 'unsupported'))
   const [pushActive, setPushActive] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
@@ -100,8 +113,10 @@ export default function App() {
   const handleSelectFromMap = useCallback((p: Place, initialLevel = 0) => {
     setOnly(null)
     setTopic('')
+    setNewsFilter('')
     setMonths(0)
     setExpandedAlso({})
+    setReaderOpen({})
     setSf('')
     setErr('')
     setRes(null)
@@ -117,15 +132,42 @@ export default function App() {
     setLevel(initialLevel)
     setHits([])
     setSearched(false)
-    setTab((x) => (x === 'favs' ? 'news' : x))
+    setTab((x) => (x === 'favs' || x === 'saved' ? 'news' : x))
+  }, [])
+
+  const handlePinClick = useCallback((pinName: string) => {
+    setTab('news')
+    setNewsFilter((cur) => (norm(cur) === norm(pinName) ? '' : pinName))
   }, [])
 
   const { boxRef, area, areaProgress, cancelAreas, heatEntries, pickOnGlobe, focusCrumb, focusStreet, updateHeat } = useGlobe({
     lang,
+    mapMode,
     sheetSnap,
+    activePinName: newsFilter,
     onSelectPlace: handleSelectFromMap,
+    onPinClick: handlePinClick,
     onError: setErr,
   })
+
+  const changeMapMode = (m: MapMode) => {
+    setMapMode(m)
+    saveMapMode(m)
+  }
+
+  // Fetch Open-Meteo local weather for selected place
+  const placeWxKey = place ? `${place.lat.toFixed(2)},${place.lon.toFixed(2)}` : ''
+  const currentWeather = wxState?.key === placeWxKey ? wxState.data : null
+
+  useEffect(() => {
+    if (!place) return
+    const ctrl = new AbortController()
+    const key = `${place.lat.toFixed(2)},${place.lon.toFixed(2)}`
+    fetchWeather(place.lat, place.lon, ctrl.signal).then((w) => {
+      if (!ctrl.signal.aborted && w) setWxState({ key, data: w })
+    })
+    return () => ctrl.abort()
+  }, [place])
 
   // Sync URL `#p=...` & browser Back/Forward navigation
   useEffect(() => {
@@ -196,7 +238,7 @@ export default function App() {
 
   // Load news / forum feed with full AbortController cancellation
   useEffect(() => {
-    if (!place || tab === 'favs') return
+    if (!place || tab === 'favs' || tab === 'saved') return
     const ctrl = new AbortController()
     const key = `${place.lat},${place.lon},${level},${lang},${tab},${months}`
     const fresh = shown.current !== key
@@ -252,10 +294,10 @@ export default function App() {
     return () => ctrl.abort()
   }, [place, level, lang, tick, tab, months])
 
-  // Update news heat overlay on map areas
+  // Update news heat overlay & geo-tagged story pins on map
   useEffect(() => {
-    updateHeat(res?.articles, tab === 'news')
-  }, [res, tab, updateHeat])
+    updateHeat(res?.articles, tab === 'news', streetList)
+  }, [res, tab, streetList, updateHeat])
 
   // Poll every minute while visible
   useEffect(() => {
@@ -274,7 +316,7 @@ export default function App() {
     void syncPushSubscription(favs, lang, quiet).then(setPushActive)
   }, [favs, lang, quiet, perm])
 
-  // In-tab favourite alerts (runs while open; complements or backs up Web Push)
+  // In-tab favourite alerts
   useEffect(() => {
     if (!favs.length) return
     const ctrl = new AbortController()
@@ -384,6 +426,7 @@ export default function App() {
   const onCrumb = (idx: number) => {
     if (!place) return
     setLevel(idx)
+    setNewsFilter('')
     focusCrumb(place, idx)
   }
 
@@ -405,6 +448,47 @@ export default function App() {
     }
   }
 
+  const toggleReader = (a: Article) => {
+    const nextOpen = !readerOpen[a.url]
+    setReaderOpen((prev) => ({ ...prev, [a.url]: nextOpen }))
+    if (!nextOpen) return
+    const key = `${lang}|${a.url}`
+    if (readerData[key]) return
+    setReaderData((prev) => ({ ...prev, [key]: { loading: true, summary: a.summary, image: a.image } }))
+    fetchReaderPreview(a, lang).then((info) => {
+      setReaderData((prev) => ({ ...prev, [key]: { loading: false, ...info } }))
+    })
+  }
+
+  const toggleBookmark = (a: Article) => {
+    const pName = place ? (place.parts[level]?.name ?? place.parts[0].name) : ''
+    setSaved((prev) =>
+      toggleSavedItem(prev, {
+        url: a.url,
+        title: a.title,
+        orig: a.orig,
+        source: a.source,
+        dateIso: a.date.toISOString(),
+        placeName: pName,
+        summary: readerData[`${lang}|${a.url}`]?.summary ?? a.summary,
+        image: readerData[`${lang}|${a.url}`]?.image ?? a.image,
+      }),
+    )
+  }
+
+  const handleClipStory = (a: Article, customPlace?: string) => {
+    const pName = customPlace ?? (place ? (place.parts[level]?.name ?? place.parts[0].name) : 'NewzLocal')
+    const sum = readerData[`${lang}|${a.url}`]?.summary ?? a.summary
+    void exportClipCard({
+      title: a.title,
+      summary: sum,
+      source: a.source,
+      place: pName,
+      dateStr: new Intl.DateTimeFormat(lang, { dateStyle: 'medium' }).format(a.date),
+      url: a.url,
+    })
+  }
+
   const isFav = !!place && favs.some((f) => same(f, place))
   const commitFavs = (n: Place[]) => {
     setFavs(n)
@@ -423,10 +507,44 @@ export default function App() {
   const cycleSheet = () => setSheetSnap((s) => (s === 'half' ? 'full' : s === 'full' ? 'peek' : 'half'))
 
   const onlyNew = !!only && !!place && only.key === label(place) && level === 0 && tab === 'news'
+  const savedUrlSet = new Set(saved.map((s) => s.url))
+
+  const visibleArticles = (() => {
+    const base = (onlyNew ? only!.items : res?.articles) ?? []
+    const qNorm = norm(newsFilter)
+    const filtered = base.filter((a) => {
+      if (topic && tab === 'news' && !topicsOf(a.orig ?? a.title).includes(topic)) return false
+      if (qNorm) {
+        const hay = norm(`${a.title} ${a.orig ?? ''} ${a.source} ${a.summary ?? ''}`)
+        if (!hay.includes(qNorm)) return false
+      }
+      return true
+    })
+    if (sortBy === 'hot') {
+      return [...filtered].sort((a, b) => (b.also?.length ?? 0) - (a.also?.length ?? 0) || +b.date - +a.date)
+    }
+    return filtered
+  })()
 
   return (
     <div className="app">
       <div ref={boxRef} className="map" />
+
+      {/* Floating Map Mode Switcher (Satellite / Broadsheet Paper Map / Night Map) */}
+      <div className="mapmodes" role="group" aria-label="Map style">
+        {(['sat', 'paper', 'dark'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            className={mapMode === m ? 'on' : ''}
+            onClick={() => changeMapMode(m)}
+            aria-pressed={mapMode === m}
+          >
+            {t(m === 'sat' ? 'mapSat' : m === 'paper' ? 'mapPaper' : 'mapDark')}
+          </button>
+        ))}
+      </div>
+
       <aside className={`panel snap-${sheetSnap}`}>
         <button
           type="button"
@@ -475,7 +593,7 @@ export default function App() {
                 type="button"
                 className="paperbtn"
                 onClick={() => setPaperOpen(true)}
-                disabled={!res?.articles.length || tab === 'favs'}
+                disabled={!res?.articles.length || tab === 'favs' || tab === 'saved'}
                 title={t('paper')}
                 aria-label={t('paper')}
               >
@@ -526,9 +644,12 @@ export default function App() {
           </ul>
         )}
 
-        <nav className="tabs">
+        <nav className="tabs tabs4">
           <button className={tab === 'news' ? 'on' : ''} onClick={() => setTab('news')}>{t('news')}</button>
           <button className={tab === 'forum' ? 'on' : ''} onClick={() => setTab('forum')}>{t('forum')}</button>
+          <button className={tab === 'saved' ? 'on' : ''} onClick={() => setTab('saved')}>
+            {t('savedTab')} ({saved.length})
+          </button>
           <button className={tab === 'favs' ? 'on' : ''} onClick={() => setTab('favs')}>
             {t('favs')} ({favs.length})
             {totalUnread > 0 && <b className="badge">+{totalUnread}</b>}
@@ -540,7 +661,7 @@ export default function App() {
           <ProgressBox
             key={`area-${areaProgress.id}-${areaProgress.step}`}
             label={t('areas')}
-            detail={t(areaProgress.step === 1 ? 'areaStep1' : areaProgress.step === 2 ? 'areaStep2' : 'areaStep3')}
+            detail={t(areaProgress.step === 1 ? 'areaStep1' : areaProgress.step === 2 ? 'areaStep2' : areaProgress.step === 3 ? 'areaStep3' : 'areaStep3')}
             pct={areaProgress.pct}
             estTotalSec={areaProgress.estSec}
             onCancel={cancelAreas}
@@ -572,8 +693,57 @@ export default function App() {
             onOpenFav={openFav}
             t={t}
           />
+        ) : tab === 'saved' ? (
+          saved.length === 0 ? (
+            <p className="muted">{t('noSaved')}</p>
+          ) : (
+            <ol className="news">
+              {saved.map((s, i) => {
+                const asArt: Article = {
+                  url: s.url,
+                  title: s.title,
+                  orig: s.orig,
+                  source: s.source,
+                  date: new Date(s.dateIso),
+                  summary: s.summary,
+                  image: s.image,
+                }
+                return (
+                  <li key={s.url} style={{ '--i': Math.min(i, 12) } as React.CSSProperties}>
+                    <b className="no">{String(i + 1).padStart(2, '0')}</b>
+                    <div className="storybody">
+                      <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>
+                      {s.summary && <p className="reader-sum">{s.summary}</p>}
+                      <small className="storymeta">
+                        <span>
+                          {s.placeName ? `${s.placeName} · ` : ''}{s.source} · {ago(new Date(s.dateIso), lang)}
+                        </span>
+                        <span className="storytools">
+                          <button type="button" className="toolbtn" title={t('clipStory')} aria-label={t('clipStory')} onClick={() => handleClipStory(asArt, s.placeName)}>
+                            ✂
+                          </button>
+                          <button
+                            type="button"
+                            className="toolbtn on"
+                            title={t('delFav')}
+                            aria-label={t('delFav')}
+                            onClick={() => setSaved((prev) => toggleSavedItem(prev, s))}
+                          >
+                            ★
+                          </button>
+                        </span>
+                      </small>
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          )
         ) : !place ? (
-          <p className="muted">{t('hint')}</p>
+          <>
+            <p className="muted">{t('hint')}</p>
+            <Trending lang={lang} onPick={(p) => pickOnGlobe(p, true)} t={t} />
+          </>
         ) : (
           <>
             <div className="crumbs">
@@ -585,6 +755,12 @@ export default function App() {
                   </button>
                 )
               })}
+              {currentWeather && (
+                <span className={currentWeather.severe ? 'wx severe' : 'wx'} title={`${currentWeather.windMs} m/s`}>
+                  {currentWeather.icon} {currentWeather.tempC}°C
+                  {currentWeather.severe ? ` · ⚠ ${t('severeWx')}` : ''}
+                </span>
+              )}
               <button className="fav share" onClick={sharePlace} aria-label={t('share')} title={copied ? t('copied') : t('share')}>
                 {copied ? (
                   '✓'
@@ -630,7 +806,7 @@ export default function App() {
             {busy && <ProgressBox key={`feed-${place.lat}-${place.lon}-${level}-${tab}-${months}`} label={t('loading')} pct={feedPct} estTotalSec={5} t={t} />}
             {stamp && !busy && (
               <p className="live">
-                {t('updated', { time: stamp.toLocaleTimeString(lang, { timeStyle: 'short' }) })} · {res?.articles.length ?? 0}
+                {t('updated', { time: stamp.toLocaleTimeString(lang, { timeStyle: 'short' }) })} · {visibleArticles.length}/{res?.articles.length ?? 0}
               </p>
             )}
             {onlyNew && (
@@ -645,19 +821,50 @@ export default function App() {
             )}
             {tab === 'news' && res && !onlyNew && months === 0 && <Report articles={res.articles} scope={res.scope} areas={heatEntries} nowMs={+refDate} t={t} />}
 
+            {/* In-list search filter + Newest / Most-covered sort bar */}
+            {res && res.articles.length > 0 && (
+              <div className="filterbar">
+                <div className="filterinput">
+                  <input
+                    value={newsFilter}
+                    onChange={(e) => setNewsFilter(e.target.value)}
+                    placeholder={t('filterNews')}
+                    aria-label={t('filterNews')}
+                  />
+                  {newsFilter && (
+                    <button type="button" onClick={() => setNewsFilter('')} aria-label="×">
+                      ×
+                    </button>
+                  )}
+                </div>
+                <div className="sortbtns" role="group">
+                  <button type="button" className={sortBy === 'new' ? 'chip on' : 'chip'} onClick={() => setSortBy('new')}>
+                    {t('sortNew')}
+                  </button>
+                  <button type="button" className={sortBy === 'hot' ? 'chip on' : 'chip'} onClick={() => setSortBy('hot')}>
+                    {t('sortHot')}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <ol className="news">
-              {(onlyNew ? only!.items : res?.articles)
-                ?.filter((a) => !topic || tab !== 'news' || topicsOf(a.orig ?? a.title).includes(topic))
-                .map((a, i) => {
-                  const isExp = !!expandedAlso[a.url]
-                  return (
-                    <li key={a.url} style={{ '--i': Math.min(i, 12) } as React.CSSProperties}>
-                      <b className="no">{String(i + 1).padStart(2, '0')}</b>
-                      <div className="storybody">
-                        <a href={a.url} target="_blank" rel="noopener noreferrer" title={a.orig && a.orig !== a.title ? a.orig : undefined}>
-                          {a.title}
-                        </a>
-                        <small>
+              {visibleArticles.map((a, i) => {
+                const isExp = !!expandedAlso[a.url]
+                const isReader = !!readerOpen[a.url]
+                const rInfo = readerData[`${lang}|${a.url}`]
+                const isSaved = savedUrlSet.has(a.url)
+                const previewSum = rInfo?.summary ?? a.summary
+                const previewImg = rInfo?.image ?? a.image
+                return (
+                  <li key={a.url} style={{ '--i': Math.min(i, 12) } as React.CSSProperties}>
+                    <b className="no">{String(i + 1).padStart(2, '0')}</b>
+                    <div className="storybody">
+                      <a href={a.url} target="_blank" rel="noopener noreferrer" title={a.orig && a.orig !== a.title ? a.orig : undefined}>
+                        {a.title}
+                      </a>
+                      <small className="storymeta">
+                        <span>
                           {a.forum ? '◆ ' : ''}
                           {a.source} · {a.approx ? '≈ ' : ''}
                           {ago(a.date, lang)}
@@ -674,23 +881,79 @@ export default function App() {
                               </button>
                             </>
                           )}
-                        </small>
-                        {isExp && a.also && (
-                          <ul className="also-list">
-                            {a.also.map((sub) => (
-                              <li key={sub.url}>
-                                <a href={sub.url} target="_blank" rel="noopener noreferrer" title={sub.orig && sub.orig !== sub.title ? sub.orig : undefined}>
-                                  {sub.title}
-                                </a>
-                                <span>{sub.source} · {ago(sub.date, lang)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    </li>
-                  )
-                })}
+                        </span>
+                        <span className="storytools">
+                          <button
+                            type="button"
+                            className={isReader ? 'toolbtn on' : 'toolbtn'}
+                            onClick={() => toggleReader(a)}
+                            aria-expanded={isReader}
+                            title="Reader"
+                          >
+                            {isReader ? '▴' : '▾'}
+                          </button>
+                          <button
+                            type="button"
+                            className="toolbtn"
+                            onClick={() => handleClipStory(a)}
+                            title={t('clipStory')}
+                            aria-label={t('clipStory')}
+                          >
+                            ✂
+                          </button>
+                          <button
+                            type="button"
+                            className={isSaved ? 'toolbtn on' : 'toolbtn'}
+                            onClick={() => toggleBookmark(a)}
+                            title={t('saveStory')}
+                            aria-label={t('saveStory')}
+                            aria-pressed={isSaved}
+                          >
+                            {isSaved ? '★' : '☆'}
+                          </button>
+                        </span>
+                      </small>
+
+                      {isReader && (
+                        <div className="reader-card">
+                          {previewImg && (
+                            <img
+                              src={previewImg}
+                              alt=""
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                            />
+                          )}
+                          {rInfo?.loading ? (
+                            <p className="muted small">{t('loading')}</p>
+                          ) : previewSum ? (
+                            <p className="reader-sum">{previewSum}</p>
+                          ) : (
+                            <p className="muted small">{t('noPreview')}</p>
+                          )}
+                          <a className="reader-link" href={a.url} target="_blank" rel="noopener noreferrer">
+                            {t('readFull', { s: a.source || 'source' })}
+                          </a>
+                        </div>
+                      )}
+
+                      {isExp && a.also && (
+                        <ul className="also-list">
+                          {a.also.map((sub) => (
+                            <li key={sub.url}>
+                              <a href={sub.url} target="_blank" rel="noopener noreferrer" title={sub.orig && sub.orig !== sub.title ? sub.orig : undefined}>
+                                {sub.title}
+                              </a>
+                              <span>{sub.source} · {ago(sub.date, lang)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ol>
           </>
         )}
@@ -704,18 +967,22 @@ export default function App() {
           date={formattedDate}
           pageWord={t('page')}
           tabName={t('myPaper')}
+          clipLabel={t('clipStory')}
           ago={(d) => ago(d, lang)}
+          onClip={(a) => handleClipStory(a, t('myPaperPlace'))}
           onClose={() => setMine(null)}
         />
       )}
       {paperOpen && res && (
         <Paper
-          articles={res.articles}
+          articles={visibleArticles.length ? visibleArticles : res.articles}
           place={place ? label(place) : ''}
           date={formattedDate}
           pageWord={t('page')}
           tabName={t(tab === 'forum' ? 'forum' : 'news')}
+          clipLabel={t('clipStory')}
           ago={(d) => ago(d, lang)}
+          onClip={(a) => handleClipStory(a)}
           onClose={() => setPaperOpen(false)}
         />
       )}

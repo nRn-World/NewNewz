@@ -1,9 +1,20 @@
 import { norm } from './areas'
 import { clusterArticles, type RelatedItem } from './cluster'
-import { SUBS, editionFor, wordsFor } from './editions'
+import { editionFor, wordsFor } from './editions'
+import { lemmyDiscussions, localSubreddits, regionalDiscussions } from './forums'
+
+function resolveApiBase(): string {
+  const fromEnv = (import.meta.env.VITE_PROXY_URL || import.meta.env.VITE_API_URL) as string | undefined
+  if (fromEnv) return fromEnv.replace(/\/+$/, '')
+  try {
+    const custom = localStorage.getItem('newzlocal.workerUrl')?.trim()
+    if (custom && /^https:\/\/[a-z0-9.-]+/i.test(custom)) return custom.replace(/\/+$/, '')
+  } catch { /* ignore */ }
+  return ''
+}
 
 /** Origin of the news/forum proxy (a Cloudflare Worker in production; empty = Vite's dev proxy). */
-const API = (import.meta.env.VITE_PROXY_URL as string | undefined) ?? ''
+const API = resolveApiBase()
 
 export type Level = 'street' | 'district' | 'city' | 'state' | 'country'
 export type Part = { level: Level; name: string }
@@ -13,6 +24,8 @@ export type Article = {
   title: string
   source: string
   date: Date
+  summary?: string
+  image?: string
   forum?: boolean
   orig?: string
   approx?: boolean
@@ -153,11 +166,46 @@ export async function reverseCountry(lat: number, lon: number, _lang = 'en', sig
   return res
 }
 
-// Circuit-breaker for local dev proxy (e.g. sandboxed preview environments where Vite's server cannot reach external news hosts)
-let localProxyDownUntil = 0
+// Circuit-breaker for local dev proxy (e.g. static GitHub Pages without Worker, or sandboxed preview without outbound Node TLS)
+const isStaticHostWithoutProxy =
+  !API && typeof location !== 'undefined' && /\.(github\.io|pages\.dev|netlify\.app)$/i.test(location.hostname)
+let localProxyDownUntil = isStaticHostWithoutProxy ? Number.MAX_SAFE_INTEGER : 0
 const isLocalProxyBlocked = () => !API && Date.now() < localProxyDownUntil
 const markLocalProxyDown = () => {
   if (!API) localProxyDownUntil = Date.now() + 180_000
+}
+
+function cleanSnippet(rawHtml: string, title: string, source: string): string | undefined {
+  if (!rawHtml) return undefined
+  const parsed = new DOMParser().parseFromString(rawHtml, 'text/html')
+  // Google News multi-perspective <ol><li><a>Headline</a> <font>Publisher</font></li></ol>
+  const liItems = [...parsed.querySelectorAll('li')]
+    .map((li) => (li.textContent ?? '').replace(/\s+/g, ' ').trim())
+    .filter((txt) => txt && norm(txt) !== norm(title) && norm(txt) !== norm(`${title} ${source}`))
+  if (liItems.length > 1) {
+    return liItems.slice(0, 3).map((s) => `• ${s}`).join(' ')
+  }
+  const plain = (parsed.body?.textContent ?? rawHtml)
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!plain || plain.length < 28) return undefined
+  const nt = norm(title)
+  const np = norm(plain)
+  if (np === nt || np === norm(`${title} ${source}`) || (nt.length > 15 && np.startsWith(nt) && plain.length < title.length + source.length + 16)) {
+    return undefined
+  }
+  return plain.slice(0, 320)
+}
+
+function extractItemImage(item: Element): string | undefined {
+  const media =
+    item.getElementsByTagNameNS('*', 'content')[0]?.getAttribute('url') ??
+    item.getElementsByTagNameNS('*', 'thumbnail')[0]?.getAttribute('url') ??
+    item.getElementsByTagNameNS('*', 'Image')[0]?.textContent ??
+    item.querySelector('enclosure[type^="image"]')?.getAttribute('url')
+  if (media && /^https:\/\//i.test(media.trim())) return media.trim()
+  return undefined
 }
 
 const interval = (when: string) => {
@@ -175,9 +223,13 @@ function parseGoogleRssXml(xmlText: string, lang: string): Article[] {
     .map((i) => {
       const source = i.querySelector('source')?.textContent ?? ''
       const raw = i.querySelector('title')?.textContent ?? ''
+      const title = source && raw.endsWith(` - ${source}`) ? raw.slice(0, -source.length - 3) : raw
+      const desc = i.querySelector('description')?.textContent ?? ''
       return {
         url: i.querySelector('link')?.textContent ?? '',
-        title: source && raw.endsWith(` - ${source}`) ? raw.slice(0, -source.length - 3) : raw,
+        title,
+        summary: cleanSnippet(desc, title, source),
+        image: extractItemImage(i),
         source,
         date: new Date(i.querySelector('pubDate')?.textContent ?? ''),
         lang,
@@ -201,7 +253,7 @@ async function bingHeadlines(query: string, country: string, when: string, signa
     throw e
   }
   if (!r.ok) {
-    if (r.status >= 500) markLocalProxyDown()
+    if (r.status === 404 || r.status >= 500) markLocalProxyDown()
     throw new Error('err.source')
   }
   const doc = new DOMParser().parseFromString(await r.text(), 'text/xml')
@@ -211,10 +263,15 @@ async function bingHeadlines(query: string, country: string, when: string, signa
       const link = i.querySelector('link')?.textContent ?? ''
       let url = link
       try { url = new URL(link).searchParams.get('url') ?? link } catch { /* keep Bing's redirect link */ }
+      const title = i.querySelector('title')?.textContent ?? ''
+      const source = i.getElementsByTagNameNS('*', 'Source')[0]?.textContent ?? ''
+      const desc = i.querySelector('description')?.textContent ?? ''
       return {
         url,
-        title: i.querySelector('title')?.textContent ?? '',
-        source: i.getElementsByTagNameNS('*', 'Source')[0]?.textContent ?? '',
+        title,
+        summary: cleanSnippet(desc, title, source),
+        image: extractItemImage(i),
+        source,
         date: new Date(i.querySelector('pubDate')?.textContent ?? ''),
         lang: ed.lang,
       }
@@ -257,7 +314,7 @@ async function googleHeadlines(query: string, country: string, when: string, sig
       const base = GN_ENV ?? `${API}/gn/rss/search`
       const r = await fetch(`${base}?${qs}`, { cache: 'no-store', signal: withTimeout(signal, GN_ENV || API ? 5000 : 2200) })
       if (r.ok) return parseGoogleRssXml(await r.text(), ed.lang)
-      if (!GN_ENV && r.status >= 500) markLocalProxyDown()
+      if (!GN_ENV && (r.status === 404 || r.status >= 500)) markLocalProxyDown()
     } catch (e) {
       if (signal?.aborted) throw e
       if (!GN_ENV) markLocalProxyDown()
@@ -301,12 +358,13 @@ async function gdeltHeadlines(query: string, _country: string, when: string, sig
   if (!r.ok) throw new Error('err.source')
   const txt = await r.text()
   if (!txt.trim().startsWith('{')) return []
-  const j = JSON.parse(txt) as { articles?: { url: string; title: string; domain?: string; seendate?: string }[] }
+  const j = JSON.parse(txt) as { articles?: { url: string; title: string; domain?: string; seendate?: string; socialimage?: string }[] }
   const seen = new Set<string>()
   return (j.articles ?? [])
     .map((a) => ({
       url: a.url,
       title: (a.title ?? '').trim(),
+      image: a.socialimage && /^https:\/\//i.test(a.socialimage) ? a.socialimage : undefined,
       source: (a.domain ?? '').replace(/^www\./, ''),
       date: parseGdeltDate(a.seendate ?? ''),
     }))
@@ -399,12 +457,25 @@ async function redditFetch(query: string, max: number, sub: string, after: strin
   const r = await fetch(jsonUrl, { signal: withTimeout(signal, 6500) })
   if (!r.ok) throw new Error('err.source')
   const j = (await r.json()) as {
-    data?: { children?: { data: { permalink: string; title: string; subreddit_name_prefixed?: string; created_utc: number } }[] }
+    data?: {
+      children?: {
+        data: {
+          permalink: string
+          title: string
+          selftext?: string
+          thumbnail?: string
+          subreddit_name_prefixed?: string
+          created_utc: number
+        }
+      }[]
+    }
   }
   return (j.data?.children ?? [])
     .map(({ data: d }) => ({
       url: `https://www.reddit.com${d.permalink}`,
       title: d.title,
+      summary: d.selftext ? d.selftext.replace(/\s+/g, ' ').trim().slice(0, 280) || undefined : undefined,
+      image: d.thumbnail && /^https:\/\//i.test(d.thumbnail) ? d.thumbnail : undefined,
       source: `reddit ${d.subreddit_name_prefixed ?? ''}`.trim(),
       date: new Date(d.created_utc * 1000),
       forum: true,
@@ -638,7 +709,9 @@ export async function forum(
   const rq = fq.replace(/ı/g, 'i').replace(/İ/g, 'I')
   const acc = new Map<string, Article>()
   let doneTasks = 0
-  const totalTasks = cc === 'SE' && !isLocalProxyBlocked() ? 5 : 4
+  const placeNames = place.parts.slice(from).map((p) => p.name)
+  const subList = localSubreddits(cc, placeNames)
+  const totalTasks = 5 + (cc === 'SE' && !isLocalProxyBlocked() ? 1 : 0)
   onProgress?.(20)
 
   const snapshot = () => ({
@@ -661,20 +734,21 @@ export async function forum(
     }
   }
 
-  const english = cc && cc.length === 2 ? new Intl.DisplayNames('en', { type: 'region' }).of(cc) : undefined
-  const subList = SUBS[cc] ?? (english ? [english.replace(/[^A-Za-z]/g, '')] : [])
-
   const redditFlow = async () => {
     const rows = await reddit(rq, want, '', '', signal)
     add(named(rows))
-    if (acc.size < Math.min(want, 35) && subList.length > 0 && !signal?.aborted) {
-      await abortableSleep(2500, signal)
-      add(named(await reddit(rq, want, subList[0], '', signal)))
+    for (const sub of subList.slice(0, 2)) {
+      if (acc.size >= Math.min(want, 45) || signal?.aborted) break
+      await abortableSleep(1200, signal)
+      // Subreddit is already localized to country/city; search by place name directly
+      add(named(await reddit(own.name, want, sub, '', signal)))
     }
   }
 
   const got = await Promise.allSettled([
     redditFlow(),
+    lemmyDiscussions(fq, cc, signal).then((l) => add(named(l))),
+    regionalDiscussions(fq, cc, API, isLocalProxyBlocked(), signal).then((l) => add(named(l))),
     hackerNews(rq, want, signal).then((l) => add(named(l))),
     stackExchange(rq, 'travel', want, signal).then((l) => add(named(l))),
     stackExchange(rq, 'expatriates', want, signal).then((l) => add(named(l))),
@@ -759,6 +833,95 @@ export async function translate(list: Article[], lang: string, signal?: AbortSig
     })
     return { ...a, orig: raw, title: trMain, ...(also ? { also } : {}) }
   })
+}
+
+const readerCache = new Map<string, { summary?: string; image?: string }>()
+
+async function translateSingle(text: string, lang: string): Promise<string> {
+  if (!text) return text
+  ensureTCache()
+  const ck = `${lang}|${text}`
+  if (tcache.has(ck)) return tcache.get(ck)!
+  try {
+    const r = await fetch(`https://translate.googleapis.com/translate_a/t?client=gtx&sl=auto&tl=${lang}&dt=t`, {
+      method: 'POST',
+      body: `q=${encodeURIComponent(text)}`,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!r.ok) return text
+    const out = (await r.json()) as ([string, string] | string)[]
+    const o = out[0]
+    const translated = (Array.isArray(o) ? o[0] : o) || text
+    tcache.set(ck, translated)
+    persistTCache()
+    return translated
+  } catch {
+    return text
+  }
+}
+
+/** Fetches (and translates) an article's summary & lead image on demand for the inline Reader card. */
+export async function fetchReaderPreview(a: Article, lang: string): Promise<{ summary?: string; image?: string }> {
+  const ck = `${lang}|${a.url}`
+  if (readerCache.has(ck)) return readerCache.get(ck)!
+
+  let summary = a.summary
+  let image = a.image
+
+  if (!summary && !a.url.includes('news.google.com/')) {
+    try {
+      if (API) {
+        const r = await fetch(`${API}/meta?url=${encodeURIComponent(a.url)}`, { signal: AbortSignal.timeout(4500) })
+        if (r.ok) {
+          const j = (await r.json()) as { description?: string; image?: string }
+          summary = cleanSnippet(j.description ?? '', a.orig ?? a.title, a.source)
+          if (!image && j.image && /^https:\/\//i.test(j.image)) image = j.image
+        }
+      } else {
+        const r = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(a.url)}`, {
+          signal: AbortSignal.timeout(4500),
+        })
+        if (r.ok) {
+          const html = (await r.text()).slice(0, 60_000)
+          const doc = new DOMParser().parseFromString(html, 'text/html')
+          const desc =
+            doc.querySelector('meta[property="og:description"]')?.getAttribute('content') ??
+            doc.querySelector('meta[name="description"]')?.getAttribute('content') ??
+            ''
+          const ogImg = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ?? ''
+          summary = cleanSnippet(desc, a.orig ?? a.title, a.source)
+          if (!image && ogImg && /^https:\/\//i.test(ogImg)) image = ogImg
+        }
+      }
+    } catch {
+      /* graceful fallback if site blocks scraping */
+    }
+  }
+
+  if (summary && a.lang !== lang) {
+    summary = await translateSingle(summary, lang)
+  }
+
+  const out = { summary, image }
+  readerCache.set(ck, out)
+  return out
+}
+
+export function getWorkerUrl(): string {
+  try {
+    return localStorage.getItem('newzlocal.workerUrl') ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function setWorkerUrl(url: string) {
+  try {
+    const clean = url.trim().replace(/\/+$/, '')
+    if (clean) localStorage.setItem('newzlocal.workerUrl', clean)
+    else localStorage.removeItem('newzlocal.workerUrl')
+  } catch { /* ignore */ }
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {

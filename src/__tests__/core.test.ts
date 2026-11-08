@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { type Area, type Areas, bounds, inside, kidsOf, labelPoint, link, norm } from '../areas'
+import { toggleSavedItem } from '../bookmarks'
 import { clusterArticles } from '../cluster'
 import { editionFor, wordsFor } from '../editions'
+import { localSubreddits } from '../forums'
 import { type Article, type Place, flashbackCreated, inQuiet, parseGdeltDate, target, toPlace } from '../lib'
+import { weatherSymbol } from '../weather'
 import { circle, rings } from '../overpass'
 import { STOP, hotWords, topicCounts, topicsOf } from '../topics'
 import { decodePlace, encodePlace, readHashPlace } from '../urlState'
@@ -231,6 +234,29 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
 
     const gdeltDate = parseGdeltDate('20261108T113000Z')
     expect(gdeltDate.toISOString()).toBe('2026-11-08T11:30:00.000Z')
+  })
+
+  it('supports bookmarks, WMO weather symbols, and localized subreddit mapping', () => {
+    const item = {
+      url: 'https://example.com/a',
+      title: 'Lokal nyhet i Kista',
+      source: 'Lokaltidningen',
+      dateIso: '2026-11-08T10:00:00.000Z',
+      placeName: 'Kista',
+    }
+    const added = toggleSavedItem([], item)
+    expect(added).toHaveLength(1)
+    expect(added[0].title).toBe('Lokal nyhet i Kista')
+    const removed = toggleSavedItem(added, item)
+    expect(removed).toHaveLength(0)
+
+    expect(weatherSymbol(0)).toEqual({ icon: '☀', severe: false })
+    expect(weatherSymbol(95)).toEqual({ icon: '⛈', severe: true })
+
+    expect(localSubreddits('TR', ['İstanbul', 'Türkiye'])).toContain('Turkey')
+    expect(localSubreddits('TR', ['İstanbul', 'Türkiye'])).toContain('istanbul')
+    expect(localSubreddits('SE', ['Kista', 'Stockholm', 'Sverige'])).toContain('stockholm')
+    expect(localSubreddits('DE', ['Berlin', 'Deutschland'])).toContain('berlin')
   })
 
   it('encrypts RFC 8291 aes128gcm Web Push payloads and signs ES256 VAPID JWTs', async () => {

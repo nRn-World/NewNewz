@@ -7,7 +7,9 @@ type Props = {
   date: string
   pageWord: string
   tabName: string
+  clipLabel?: string
   ago: (d: Date) => string
+  onClip?: (a: Article) => void
   onClose: () => void
 }
 
@@ -44,7 +46,7 @@ const Masthead = () => (
 )
 
 /** The news list as an old newspaper: newest on the front page, oldest on the last one. Flip with buttons, arrow keys, mouse drag or a swipe. */
-export default function Paper({ articles, place, date, pageWord, tabName, ago, onClose }: Props) {
+export default function Paper({ articles, place, date, pageWord, tabName, clipLabel = 'Clip', ago, onClip, onClose }: Props) {
   const pages = [articles.slice(0, FRONT)]
   for (let i = FRONT; i < articles.length; i += PER) pages.push(articles.slice(i, i + PER))
   const [page, setPage] = useState(0)
@@ -82,8 +84,26 @@ export default function Paper({ articles, place, date, pageWord, tabName, ago, o
     a && (
       <section key={a.url} className={`story ${cls}`}>
         <h3><a href={a.url} target="_blank" rel="noopener noreferrer" draggable={false}>{a.title}</a></h3>
+        {cls === 'banner' && a.summary && <p className="story-sum">{a.summary}</p>}
         <small>
           {a.source}{a.also?.length ? ` (+${a.also.length})` : ''} · {a.approx ? '≈ ' : ''}{ago(a.date)}
+          {onClip && (
+            <>
+              {' · '}
+              <button
+                type="button"
+                className="paper-clip"
+                title={clipLabel}
+                aria-label={clipLabel}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClip(a)
+                }}
+              >
+                ✂
+              </button>
+            </>
+          )}
         </small>
       </section>
     )

@@ -5,7 +5,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { type Area, at, boundaries, bounds, kidsOf, labelPoint, norm } from './areas'
 import type { Lang } from './i18n'
 import { type Article, type Place, reverse, reverseCountry } from './lib'
-import { SKY, earthStyle } from './mapStyle'
+import { type MapMode, earthStyle, skyFor } from './mapStyle'
 import { type Street, circle, subPieces } from './overpass'
 import { readHashPlace } from './urlState'
 
@@ -13,6 +13,7 @@ maplibregl.setWorkerUrl(workerUrl)
 
 export type SheetSnap = 'peek' | 'half' | 'full'
 export type AreaProg = { id: number; step: 1 | 2 | 3; pct: number; estSec: number }
+export type StoryPin = { name: string; count: number; lon: number; lat: number }
 
 type Ctx = { cc: string; country: string }
 type Cur = Ctx & { mode: 1 | 2 | 3; feats: Area[]; sel?: string; state?: string; district?: string }
@@ -21,13 +22,19 @@ const SNAP_RATIO: Record<SheetSnap, number> = { peek: 0.16, half: 0.5, full: 0.8
 
 export function useGlobe({
   lang,
+  mapMode,
   sheetSnap,
+  activePinName,
   onSelectPlace,
+  onPinClick,
   onError,
 }: {
   lang: Lang
+  mapMode: MapMode
   sheetSnap: SheetSnap
+  activePinName: string
   onSelectPlace: (p: Place, level?: number) => void
+  onPinClick: (name: string) => void
   onError: (msg: string) => void
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
@@ -35,13 +42,17 @@ export function useGlobe({
   const pinRef = useRef<maplibregl.Marker | null>(null)
   const spinRef = useRef(true)
   const curRef = useRef<Cur | null>(null)
+  const pinsRef = useRef<StoryPin[]>([])
+  const activePinRef = useRef(activePinName)
   const hovRef = useRef<number | string | undefined>(undefined)
   const seqRef = useRef(0)
   const areaAbortRef = useRef<AbortController | null>(null)
   const heatRef = useRef<Record<string, number>>({})
   const langRef = useRef(lang)
+  const modeRef = useRef(mapMode)
   const snapRef = useRef(sheetSnap)
   const selectCbRef = useRef(onSelectPlace)
+  const pinCbRef = useRef(onPinClick)
   const errCbRef = useRef(onError)
 
   const [areaProgress, setAreaProgress] = useState<AreaProg | null>(null)
@@ -52,8 +63,9 @@ export function useGlobe({
     langRef.current = lang
     snapRef.current = sheetSnap
     selectCbRef.current = onSelectPlace
+    pinCbRef.current = onPinClick
     errCbRef.current = onError
-  }, [lang, sheetSnap, onSelectPlace, onError])
+  }, [lang, sheetSnap, onSelectPlace, onPinClick, onError])
 
   const cancelAreas = useCallback(() => {
     seqRef.current++
@@ -74,6 +86,30 @@ export function useGlobe({
   useEffect(() => {
     if (mapRef.current) applyPadding(mapRef.current)
   }, [lang, sheetSnap, applyPadding])
+
+  const drawPins = useCallback((pins: StoryPin[], activeName = activePinRef.current) => {
+    pinsRef.current = pins
+    const m = mapRef.current
+    const src = m?.getSource('story-pins') as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+    src.setData({
+      type: 'FeatureCollection',
+      features: pins.map((p) => ({
+        type: 'Feature',
+        properties: {
+          name: p.name,
+          count: String(p.count),
+          active: norm(p.name) === norm(activeName) ? 1 : 0,
+        },
+        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      })),
+    } as never)
+  }, [])
+
+  useEffect(() => {
+    activePinRef.current = activePinName
+    drawPins(pinsRef.current, activePinName)
+  }, [activePinName, drawPins])
 
   const drawPieces = useCallback((c: Cur) => {
     const m = mapRef.current
@@ -102,6 +138,112 @@ export function useGlobe({
     } as never)
   }, [])
 
+  const installCustomLayers = useCallback(
+    (m: maplibregl.Map, mode: MapMode) => {
+      m.setProjection({ type: 'globe' })
+      m.setSky(skyFor(mode) as never)
+      const isPaper = mode === 'paper'
+      const font = (m.getStyle().layers.find((l) => l.type === 'symbol')?.layout as { 'text-font'?: string[] } | undefined)?.['text-font']
+
+      if (!m.getSource('areas')) {
+        m.addSource('areas', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, generateId: true })
+        m.addLayer({
+          id: 'areas-fill',
+          type: 'fill',
+          source: 'areas',
+          paint: {
+            'fill-color': isPaper ? '#c8321e' : '#ff5a3c',
+            'fill-opacity': [
+              'case',
+              ['==', ['get', 'sel'], 1],
+              0,
+              ['boolean', ['feature-state', 'hover'], false],
+              0.28,
+              ['+', 0.05, ['*', 0.05, ['min', ['get', 'n'], 10]]],
+            ],
+          },
+        })
+        m.addLayer({
+          id: 'areas-line',
+          type: 'line',
+          source: 'areas',
+          paint: {
+            'line-color': ['case', ['==', ['get', 'sel'], 1], isPaper ? '#c8321e' : '#ffd166', isPaper ? '#14100b' : '#ffffff'],
+            'line-width': ['case', ['==', ['get', 'sel'], 1], 3, 1.2],
+            'line-opacity': 0.85,
+          },
+        })
+      }
+
+      if (!m.getSource('area-names')) {
+        m.addSource('area-names', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+        m.addLayer({
+          id: 'areas-label',
+          type: 'symbol',
+          source: 'area-names',
+          minzoom: 3,
+          layout: { 'text-field': ['get', 'label'], 'text-size': 13, ...(font ? { 'text-font': font } : {}) },
+          paint: {
+            'text-color': isPaper ? '#14100b' : '#ffffff',
+            'text-halo-color': isPaper ? '#f5ecd7' : '#05070d',
+            'text-halo-width': 1.6,
+          },
+        })
+      }
+
+      if (!m.getSource('story-pins')) {
+        m.addSource('story-pins', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+        m.addLayer({
+          id: 'story-pins-circle',
+          type: 'circle',
+          source: 'story-pins',
+          minzoom: 4,
+          paint: {
+            'circle-radius': ['case', ['==', ['get', 'active'], 1], 14, 11],
+            'circle-color': ['case', ['==', ['get', 'active'], 1], '#ffd166', '#c8321e'],
+            'circle-stroke-color': ['case', ['==', ['get', 'active'], 1], '#14100b', '#ffffff'],
+            'circle-stroke-width': 2,
+          },
+        })
+        m.addLayer({
+          id: 'story-pins-count',
+          type: 'symbol',
+          source: 'story-pins',
+          minzoom: 4,
+          layout: {
+            'text-field': ['get', 'count'],
+            'text-size': 11,
+            'text-allow-overlap': true,
+            ...(font ? { 'text-font': font } : {}),
+          },
+          paint: {
+            'text-color': ['case', ['==', ['get', 'active'], 1], '#14100b', '#ffffff'],
+          },
+        })
+      }
+
+      if (curRef.current) drawPieces(curRef.current)
+      if (pinsRef.current.length) drawPins(pinsRef.current)
+    },
+    [drawPieces, drawPins],
+  )
+
+  // Switch map style on demand while preserving current camera, areas, and geo-tagged pins
+  useEffect(() => {
+    const m = mapRef.current
+    if (!m || modeRef.current === mapMode) return
+    modeRef.current = mapMode
+    let cancelled = false
+    earthStyle(mapMode).then((style) => {
+      if (cancelled || !mapRef.current) return
+      m.once('style.load', () => installCustomLayers(m, mapMode))
+      m.setStyle(style as maplibregl.StyleSpecification)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [mapMode, installCustomLayers])
+
   const loadSub = useCallback(
     async (f: Area, c: Cur, me: number, ctrl: AbortController) => {
       setAreaProgress({ id: me, step: 3, pct: 72, estSec: 6 })
@@ -111,7 +253,7 @@ export function useGlobe({
           drawPieces({ ...c, mode: 3, feats: subs, sel: undefined, district: f.properties.name })
         }
       } catch {
-        // Provinces/districts are already drawn on screen; do not alarm the user if optional neighbourhood shapes time out
+        // Optional neighbourhood drilldown — provinces/districts are already rendered
       } finally {
         if (me === seqRef.current) setAreaProgress(null)
       }
@@ -179,6 +321,7 @@ export function useGlobe({
   const pickOnGlobe = useCallback(
     (p: Place, fly = true, initialLevel = 0) => {
       placePin(p)
+      drawPins([])
       selectCbRef.current(p, initialLevel)
       const m = mapRef.current
       const targetPart = p.parts[initialLevel] ?? p.parts[0]
@@ -201,7 +344,7 @@ export function useGlobe({
         })
       }
     },
-    [placePin, showAreas],
+    [drawPins, placePin, showAreas],
   )
 
   const focusCrumb = useCallback(
@@ -230,26 +373,58 @@ export function useGlobe({
     [placePin],
   )
 
+  /** Updates polygon heat shading AND places clickable Geo-tagged story pins on the 3D map. */
   const updateHeat = useCallback(
-    (articles: Article[] | undefined, active: boolean) => {
+    (articles: Article[] | undefined, active: boolean, streets?: Street[] | null) => {
       const c = curRef.current
-      if (!c || !active || !articles) return
-      const heads = articles.map((a) => norm(a.orig ?? a.title))
-      const next: Record<string, number> = {}
-      for (const f of c.feats) {
-        const nm = norm(f.properties.name)
-        if (nm.length >= 3) {
-          const n = heads.filter((h) => h.includes(nm)).length
-          if (n) next[f.properties.name] = n
+      if (!active || !articles) {
+        if (!active) drawPins([])
+        return
+      }
+      const texts = articles.map((a) => norm(`${a.orig ?? a.title} ${a.summary ?? ''}`))
+      const nextHeat: Record<string, number> = {}
+      const nextPins: StoryPin[] = []
+      const seenPinNames = new Set<string>()
+
+      if (c) {
+        for (const f of c.feats) {
+          const nm = norm(f.properties.name)
+          if (nm.length >= 3) {
+            const n = texts.filter((h) => h.includes(nm)).length
+            if (n > 0) {
+              nextHeat[f.properties.name] = n
+              if (!seenPinNames.has(nm)) {
+                seenPinNames.add(nm)
+                const [lon, lat] = labelPoint(f.geometry)
+                nextPins.push({ name: f.properties.name, count: n, lon, lat })
+              }
+            }
+          }
         }
       }
-      if (JSON.stringify(next) !== JSON.stringify(heatRef.current)) {
-        heatRef.current = next
-        setHeatEntries(Object.entries(next).map(([name, n]) => ({ name, n })))
+
+      if (streets) {
+        for (const st of streets) {
+          const nm = norm(st.name)
+          if (nm.length >= 5 && !seenPinNames.has(nm)) {
+            const n = texts.filter((h) => h.includes(nm)).length
+            if (n > 0) {
+              seenPinNames.add(nm)
+              nextPins.push({ name: st.name, count: n, lon: st.lon, lat: st.lat })
+            }
+          }
+        }
+      }
+
+      drawPins(nextPins)
+
+      if (c && JSON.stringify(nextHeat) !== JSON.stringify(heatRef.current)) {
+        heatRef.current = nextHeat
+        setHeatEntries(Object.entries(nextHeat).map(([name, n]) => ({ name, n })))
         drawPieces(c)
       }
     },
-    [drawPieces],
+    [drawPieces, drawPins],
   )
 
   useEffect(() => {
@@ -300,7 +475,7 @@ export function useGlobe({
       void loadSub(f, { ...c, sel: name }, me, ctrl)
     }
 
-    earthStyle()
+    earthStyle(modeRef.current)
       .then((style) => {
         if (dead || !boxRef.current) return
         m = new maplibregl.Map({
@@ -323,53 +498,22 @@ export function useGlobe({
         m.once('load', closeAttrib)
         m.once('idle', closeAttrib)
 
-        m.on('style.load', () => {
-          m!.setProjection({ type: 'globe' })
-          m!.setSky(SKY as never)
-          const font = (m!.getStyle().layers.find((l) => l.type === 'symbol')?.layout as { 'text-font'?: string[] } | undefined)?.['text-font']
-          m!.addSource('areas', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, generateId: true })
-          m!.addLayer({
-            id: 'areas-fill',
-            type: 'fill',
-            source: 'areas',
-            paint: {
-              'fill-color': '#ff5a3c',
-              'fill-opacity': [
-                'case',
-                ['==', ['get', 'sel'], 1],
-                0,
-                ['boolean', ['feature-state', 'hover'], false],
-                0.3,
-                ['+', 0.05, ['*', 0.05, ['min', ['get', 'n'], 10]]],
-              ],
-            },
-          })
-          m!.addLayer({
-            id: 'areas-line',
-            type: 'line',
-            source: 'areas',
-            paint: {
-              'line-color': ['case', ['==', ['get', 'sel'], 1], '#ffd166', '#ffffff'],
-              'line-width': ['case', ['==', ['get', 'sel'], 1], 3, 1],
-              'line-opacity': 0.85,
-            },
-          })
-          m!.addSource('area-names', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-          m!.addLayer({
-            id: 'areas-label',
-            type: 'symbol',
-            source: 'area-names',
-            minzoom: 3,
-            layout: { 'text-field': ['get', 'label'], 'text-size': 13, ...(font ? { 'text-font': font } : {}) },
-            paint: { 'text-color': '#fff', 'text-halo-color': '#05070d', 'text-halo-width': 1.6 },
-          })
-        })
+        m.once('style.load', () => installCustomLayers(m!, modeRef.current))
 
         const unhover = () => {
-          if (hovRef.current !== undefined) m!.setFeatureState({ source: 'areas', id: hovRef.current }, { hover: false })
+          if (hovRef.current !== undefined && m!.getSource('areas')) {
+            m!.setFeatureState({ source: 'areas', id: hovRef.current }, { hover: false })
+          }
           hovRef.current = undefined
           m!.getCanvas().style.cursor = ''
         }
+
+        m.on('mouseenter', 'story-pins-circle', () => {
+          m!.getCanvas().style.cursor = 'pointer'
+        })
+        m.on('mouseleave', 'story-pins-circle', () => {
+          m!.getCanvas().style.cursor = ''
+        })
 
         m.on('mousemove', 'areas-fill', (e) => {
           const id = e.features?.[0]?.id
@@ -384,12 +528,27 @@ export function useGlobe({
         m.on('mouseleave', 'areas-fill', unhover)
 
         m.on('click', async (e) => {
+          // 1. Check if user clicked a Geo-tagged news pin badge first
+          if (m!.getLayer('story-pins-circle')) {
+            const pinHit = m!.queryRenderedFeatures(e.point, { layers: ['story-pins-circle'] })[0]
+            if (pinHit?.properties?.name) {
+              const nm = String(pinHit.properties.name)
+              const coords = (pinHit.geometry as { coordinates?: [number, number] }).coordinates
+              if (coords) m!.easeTo({ center: coords, zoom: Math.max(m!.getZoom(), 11.5), duration: 900 })
+              pinCbRef.current(nm)
+              return
+            }
+          }
+
+          // 2. Check if user clicked a sub-area polygon
           const c = curRef.current
           const hit = c && m!.getLayer('areas-fill') ? m!.queryRenderedFeatures(e.point, { layers: ['areas-fill'] })[0] : undefined
           if (hit) {
             const f = c!.feats.find((x) => x.properties.name === hit.properties.name && (c!.mode === 1 || x.properties.parent === hit.properties.parent))
             if (f && f.properties.name !== c!.sel) return onArea(f)
           }
+
+          // 3. Otherwise reverse-geocode the globe point
           try {
             errCbRef.current('')
             if (m!.getZoom() < 5) {
@@ -426,7 +585,7 @@ export function useGlobe({
       window.removeEventListener('resize', onResize)
       m?.remove()
     }
-  }, [applyPadding, drawPieces, loadSub, pickOnGlobe, placePin, showAreas])
+  }, [applyPadding, drawPieces, installCustomLayers, loadSub, pickOnGlobe, placePin, showAreas])
 
   return {
     boxRef,

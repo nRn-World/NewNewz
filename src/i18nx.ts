@@ -18,6 +18,12 @@ const en: D = {
   nearMe: 'Near me', locating: 'Locating…', 'err.geo': 'Location access was denied',
   moreSources: '+{n} sources', delFav: 'Remove favourite', pushOn: 'Background push notifications are active.', sheetToggle: 'Resize panel',
   areaStep1: '1/3 Regions', areaStep2: '2/3 Districts', areaStep3: '3/3 Neighbourhoods', estLeft: '~{n}s left',
+  hotPlaces: 'Hot places right now', surpriseMe: 'Surprise me', filterNews: 'Filter headlines…',
+  sortNew: 'Newest', sortHot: 'Most covered', savedTab: 'Saved', noSaved: 'Bookmark stories with ★ to read later.',
+  saveStory: 'Save for later', clipStory: 'Share newspaper clip', readFull: 'Read full story at {s} ↗',
+  noPreview: 'No excerpt provided by source — open the article below.',
+  mapSat: 'Satellite', mapPaper: 'Paper', mapDark: 'Night', severeWx: 'Severe weather',
+  workerLabel: 'Cloudflare Worker URL (optional)',
 }
 
 const sv: D = {
@@ -35,6 +41,12 @@ const sv: D = {
   nearMe: 'Nära mig', locating: 'Hittar plats…', 'err.geo': 'Platsåtkomst nekades',
   moreSources: '+{n} källor', delFav: 'Ta bort favorit', pushOn: 'Bakgrundsnotiser (Web Push) är aktiva.', sheetToggle: 'Ändra panelstorlek',
   areaStep1: '1/3 Regiongränser', areaStep2: '2/3 Distrikt', areaStep3: '3/3 Stadsdelar', estLeft: '~{n} s kvar',
+  hotPlaces: 'Heta platser just nu', surpriseMe: 'Slumpa plats', filterNews: 'Filtrera rubriker…',
+  sortNew: 'Nyast', sortHot: 'Mest omskrivet', savedTab: 'Sparade', noSaved: 'Spara artiklar med ★ för att läsa senare.',
+  saveStory: 'Spara för senare', clipStory: 'Dela som tidningsurklipp', readFull: 'Läs hela artikeln hos {s} ↗',
+  noPreview: 'Ingen ingress i flödet — öppna artikeln nedan.',
+  mapSat: 'Satellit', mapPaper: 'Karta', mapDark: 'Natt', severeWx: 'Oväder',
+  workerLabel: 'Cloudflare Worker-URL (valfri)',
 }
 
 const tr_: D = {
@@ -52,6 +64,12 @@ const tr_: D = {
   nearMe: 'Yakınımda', locating: 'Konum bulunuyor…', 'err.geo': 'Konum izni reddedildi',
   moreSources: '+{n} kaynak', delFav: 'Favoriyi kaldır', pushOn: 'Arka plan bildirimleri etkin.', sheetToggle: 'Paneli boyutlandır',
   areaStep1: '1/3 İl sınırları', areaStep2: '2/3 İlçeler', areaStep3: '3/3 Mahalleler', estLeft: '~{n} sn kaldı',
+  hotPlaces: 'Şu an öne çıkan yerler', surpriseMe: 'Rastgele yer', filterNews: 'Başlıklarda ara…',
+  sortNew: 'En yeni', sortHot: 'En çok konuşulan', savedTab: 'Kayıtlı', noSaved: 'Daha sonra okumak için ★ ile kaydedin.',
+  saveStory: 'Daha sonra oku', clipStory: 'Gazete kupürü paylaş', readFull: 'Tamamını {s} kaynağında oku ↗',
+  noPreview: 'Özet bulunamadı — haberi aşağıdan açın.',
+  mapSat: 'Uydu', mapPaper: 'Harita', mapDark: 'Gece', severeWx: 'Şiddetli hava',
+  workerLabel: 'Cloudflare Worker URL (isteğe bağlı)',
 }
 
 const ar: D = {
@@ -69,6 +87,12 @@ const ar: D = {
   nearMe: 'بالقرب مني', locating: 'جارٍ تحديد الموقع…', 'err.geo': 'تم رفض الوصول إلى الموقع',
   moreSources: '+{n} مصادر', delFav: 'إزالة المفضلة', pushOn: 'إشعارات الخلفية مفعلة.', sheetToggle: 'تغيير حجم اللوحة',
   areaStep1: '1/3 المناطق', areaStep2: '2/3 المقاطعات', areaStep3: '3/3 الأحياء', estLeft: 'متبقي ~{n} ث',
+  hotPlaces: 'أماكن نشطة الآن', surpriseMe: 'فاجئني', filterNews: 'تصفية العناوين…',
+  sortNew: 'الأحدث', sortHot: 'الأكثر تغطية', savedTab: 'المحفوظة', noSaved: 'احفظ المقالات بعلامة ★ لقراءتها لاحقاً.',
+  saveStory: 'حفظ للاحقاً', clipStory: 'مشاركة كقصاصة صحيفة', readFull: 'اقرأ الخبر كاملاً في {s} ↗',
+  noPreview: 'لا يوجد مقتطف — افتح الخبر أدناه.',
+  mapSat: 'قمر صناعي', mapPaper: 'خريطة', mapDark: 'ليلي', severeWx: 'طقس قاسٍ',
+  workerLabel: 'رابط Cloudflare Worker (اختياري)',
 }
 
 const es: D = {
@@ -86,6 +110,12 @@ const es: D = {
   nearMe: 'Cerca de mí', locating: 'Ubicando…', 'err.geo': 'Se denegó el acceso a la ubicación',
   moreSources: '+{n} fuentes', delFav: 'Quitar favorito', pushOn: 'Notificaciones en segundo plano activas.', sheetToggle: 'Cambiar tamaño del panel',
   areaStep1: '1/3 Regiones', areaStep2: '2/3 Distritos', areaStep3: '3/3 Barrios', estLeft: '~{n}s restantes',
+  hotPlaces: 'Lugares activos ahora', surpriseMe: 'Sorpréndeme', filterNews: 'Filtrar titulares…',
+  sortNew: 'Más recientes', sortHot: 'Más cubiertos', savedTab: 'Guardados', noSaved: 'Guarda artículos con ★ para leer después.',
+  saveStory: 'Guardar', clipStory: 'Compartir recorte', readFull: 'Leer completo en {s} ↗',
+  noPreview: 'Sin extracto — abre el artículo abajo.',
+  mapSat: 'Satélite', mapPaper: 'Mapa', mapDark: 'Noche', severeWx: 'Clima severo',
+  workerLabel: 'URL de Cloudflare Worker (opcional)',
 }
 
 const fr: D = {
@@ -103,6 +133,12 @@ const fr: D = {
   nearMe: 'Autour de moi', locating: 'Localisation…', 'err.geo': 'Accès à la position refusé',
   moreSources: '+{n} sources', delFav: 'Retirer le favori', pushOn: 'Notifications en arrière-plan actives.', sheetToggle: 'Redimensionner le panneau',
   areaStep1: '1/3 Régions', areaStep2: '2/3 Districts', areaStep3: '3/3 Quartiers', estLeft: '~{n}s restantes',
+  hotPlaces: 'Lieux actifs maintenant', surpriseMe: 'Au hasard', filterNews: 'Filtrer les titres…',
+  sortNew: 'Plus récents', sortHot: 'Plus couverts', savedTab: 'Enregistrés', noSaved: 'Enregistrez des articles avec ★ pour plus tard.',
+  saveStory: 'Enregistrer', clipStory: 'Partager la coupure', readFull: 'Lire la suite sur {s} ↗',
+  noPreview: 'Aucun extrait — ouvrez l’article ci-dessous.',
+  mapSat: 'Satellite', mapPaper: 'Carte', mapDark: 'Nuit', severeWx: 'Météo sévère',
+  workerLabel: 'URL Cloudflare Worker (optionnel)',
 }
 
 const de: D = {
@@ -120,6 +156,12 @@ const de: D = {
   nearMe: 'In meiner Nähe', locating: 'Standort wird ermittelt…', 'err.geo': 'Standortzugriff wurde verweigert',
   moreSources: '+{n} Quellen', delFav: 'Favorit entfernen', pushOn: 'Hintergrund-Push ist aktiv.', sheetToggle: 'Panelgröße ändern',
   areaStep1: '1/3 Regionen', areaStep2: '2/3 Bezirke', areaStep3: '3/3 Stadtteile', estLeft: 'noch ~{n}s',
+  hotPlaces: 'Aktuelle Brennpunkte', surpriseMe: 'Zufallsort', filterNews: 'Schlagzeilen filtern…',
+  sortNew: 'Neueste', sortHot: 'Meistberichtet', savedTab: 'Gespeichert', noSaved: 'Artikel mit ★ zum Späterlesen speichern.',
+  saveStory: 'Merken', clipStory: 'Zeitungsclip teilen', readFull: 'Ganzen Artikel bei {s} lesen ↗',
+  noPreview: 'Kein Auszug verfügbar — Artikel unten öffnen.',
+  mapSat: 'Satellit', mapPaper: 'Karte', mapDark: 'Nacht', severeWx: 'Unwetter',
+  workerLabel: 'Cloudflare Worker-URL (optional)',
 }
 
 export const EXTRA: Record<Lang, D> = { en, sv, tr: tr_, ar, es, fr, de }
