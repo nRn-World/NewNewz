@@ -111,6 +111,7 @@ export default function App() {
   const [streetsOpen, setStreetsOpen] = useState(false)
   const searchAbort = useRef<AbortController | null>(null)
   const popNavRef = useRef(false)
+  const panelRef = useRef<HTMLElement>(null)
 
   const t = useCallback((k: Parameters<typeof tr>[1], v?: Record<string, string>) => tr(lang, k, v), [lang])
   const te = (m: string) => tr(lang, m.startsWith('err.') ? (m as Parameters<typeof tr>[1]) : 'err.source')
@@ -150,7 +151,7 @@ export default function App() {
     setNewsFilter((cur) => (norm(cur) === norm(pinName) ? '' : pinName))
   }, [])
 
-  const { boxRef, area, areaProgress, cancelAreas, heatEntries, pickOnGlobe, focusCrumb, focusStreet, updateHeat } = useGlobe({
+  const { boxRef, area, areaProgress, cancelAreas, heatEntries, pickOnGlobe, focusCrumb, focusStreet, updateHeat, resetGlobe } = useGlobe({
     lang,
     mapMode,
     sheetSnap,
@@ -159,6 +160,48 @@ export default function App() {
     onPinClick: handlePinClick,
     onError: setErr,
   })
+
+  /** Resets the entire view, URL, search input, overlays, and 3D globe back to the initial first-open start page. */
+  const goHome = useCallback(
+    (pushHistory = true) => {
+      searchAbort.current?.abort()
+      resetGlobe()
+      shown.current = ''
+      setQ('')
+      setHits([])
+      setSearched(false)
+      setPlace(null)
+      setLevel(0)
+      setRes(null)
+      setSpotForum(null)
+      setBusy(false)
+      setFeedPct(20)
+      setErr('')
+      setStamp(null)
+      setOffline(false)
+      setTab('news')
+      setPaperOpen(false)
+      setMine(null)
+      setTopic('')
+      setNewsFilter('')
+      setSortBy('new')
+      setMonths(0)
+      setOnly(null)
+      setExpandedAlso({})
+      setReaderOpen({})
+      setWxState(null)
+      setStreetState(null)
+      setLoadingStreets(false)
+      setSf('')
+      setStreetsOpen(false)
+      setSheetSnap('half')
+      panelRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      if (pushHistory && location.hash) {
+        window.history.pushState(null, '', `${location.pathname}${location.search}`)
+      }
+    },
+    [resetGlobe],
+  )
 
   const changeMapMode = (m: MapMode) => {
     setMapMode(m)
@@ -193,6 +236,10 @@ export default function App() {
 
   useEffect(() => {
     const navigateToHash = (hashStr: string) => {
+      if (!hashStr || hashStr === '#') {
+        goHome(false)
+        return
+      }
       const route = readHashPlace(hashStr)
       if (!route) return
       popNavRef.current = true
@@ -214,7 +261,7 @@ export default function App() {
       window.removeEventListener('popstate', onPopState)
       navigator.serviceWorker?.removeEventListener('message', onSwMessage)
     }
-  }, [pickOnGlobe])
+  }, [pickOnGlobe, goHome])
 
   // PWA install prompt listener
   useEffect(() => {
@@ -623,7 +670,7 @@ export default function App() {
         ))}
       </div>
 
-      <aside className={`panel snap-${sheetSnap}`}>
+      <aside ref={panelRef} className={`panel snap-${sheetSnap}`}>
         <button
           type="button"
           className="sheet-handle"
@@ -681,7 +728,19 @@ export default function App() {
               </button>
             </div>
           </div>
-          <h1>NewzLocal</h1>
+          <h1>
+            <a
+              href={import.meta.env.BASE_URL}
+              className="logo-link"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+                e.preventDefault()
+                goHome()
+              }}
+            >
+              NewzLocal
+            </a>
+          </h1>
           <div className="langs" role="group" aria-label={t('language')}>
             {LANGS.map((l) => (
               <button key={l.code} className={l.code === lang ? 'on' : ''} title={l.name} aria-label={l.name} aria-pressed={l.code === lang} onClick={() => setLang(l.code)}>
@@ -1071,6 +1130,7 @@ export default function App() {
           clipLabel={t('clipStory')}
           ago={(d) => ago(d, lang)}
           onClip={(a) => handleClipStory(a, t('myPaperPlace'))}
+          onHome={() => goHome()}
           onClose={() => setMine(null)}
         />
       )}
@@ -1084,6 +1144,7 @@ export default function App() {
           clipLabel={t('clipStory')}
           ago={(d) => ago(d, lang)}
           onClip={(a) => handleClipStory(a)}
+          onHome={() => goHome()}
           onClose={() => setPaperOpen(false)}
         />
       )}

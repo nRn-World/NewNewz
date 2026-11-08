@@ -10,6 +10,7 @@ type Props = {
   clipLabel?: string
   ago: (d: Date) => string
   onClip?: (a: Article) => void
+  onHome?: () => void
   onClose: () => void
 }
 
@@ -46,7 +47,7 @@ const Masthead = () => (
 )
 
 /** The news list as an old newspaper: newest on the front page, oldest on the last one. Flip with buttons, arrow keys, mouse drag or a swipe. */
-export default function Paper({ articles, place, date, pageWord, tabName, clipLabel = 'Clip', ago, onClip, onClose }: Props) {
+export default function Paper({ articles, place, date, pageWord, tabName, clipLabel = 'Clip', ago, onClip, onHome, onClose }: Props) {
   const pages = [articles.slice(0, FRONT)]
   for (let i = FRONT; i < articles.length; i += PER) pages.push(articles.slice(i, i + PER))
   const [page, setPage] = useState(0)
@@ -135,7 +136,12 @@ export default function Paper({ articles, place, date, pageWord, tabName, clipLa
           <>
             <header className="front-head">
               <div className="corner left"><b>{tabName}</b><i>★</i><span>LIVE</span></div>
-              <div className="center"><Masthead /><div className="ribbon"><span>{place}</span></div></div>
+              <div className="center">
+                <button type="button" className="masthead-home" onClick={() => (onHome ?? onClose)()} aria-label="NewzLocal">
+                  <Masthead />
+                </button>
+                <div className="ribbon"><span>{place}</span></div>
+              </div>
               <div className="corner right"><span>{pageWord} 1</span><b>{articles.length}</b></div>
             </header>
             <div className="edition"><span>EST. 2026</span><span>{place}</span><span>{date}</span></div>
@@ -149,7 +155,11 @@ export default function Paper({ articles, place, date, pageWord, tabName, clipLa
           </>
         ) : (
           <>
-            <header className="slim"><span>NEWZLOCAL</span><span>{place}</span><span>{pageWord} {page + 1}</span></header>
+            <header className="slim">
+              <button type="button" className="slim-home" onClick={() => (onHome ?? onClose)()}>NEWZLOCAL</button>
+              <span>{place}</span>
+              <span>{pageWord} {page + 1}</span>
+            </header>
             <div className="cols">
               {rows.map((a, i) => item(a, i % 5 === 0 ? 'big' : i % 5 === 3 ? 'boxed' : i % 5 === 1 ? 'caps' : ''))}
             </div>
