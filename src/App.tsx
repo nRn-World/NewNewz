@@ -19,6 +19,7 @@ import {
   loadQuiet,
   loadSources,
   news,
+  rankImportantForum,
   reverse,
   saveCats,
   saveFavs,
@@ -26,6 +27,7 @@ import {
   saveQuiet,
   saveSources,
   search,
+  showAppNotification,
   syncPushSubscription,
   translate,
 } from './lib'
@@ -44,6 +46,8 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+type FeedState = { articles: Article[]; scope: string; query: string; exactCount?: number }
+
 const same = (a: Place, b: Place) => label(a) === label(b)
 const ago = (d: Date, lang: Lang) => {
   const m = Math.max(1, Math.round((Date.now() - d.getTime()) / 60000))
@@ -58,7 +62,8 @@ export default function App() {
   const [locating, setLocating] = useState(false)
   const [place, setPlace] = useState<Place | null>(null)
   const [level, setLevel] = useState(0)
-  const [res, setRes] = useState<{ articles: Article[]; scope: string; query: string } | null>(null)
+  const [res, setRes] = useState<FeedState | null>(null)
+  const [spotForum, setSpotForum] = useState<{ key: string; items: Article[] } | null>(null)
   const [busy, setBusy] = useState(false)
   const [feedPct, setFeedPct] = useState(20)
   const [err, setErr] = useState('')
@@ -70,7 +75,10 @@ export default function App() {
   const [tick, setTick] = useState(0)
   const [stamp, setStamp] = useState<Date | null>(null)
   const shown = useRef('')
-  const [tab, setTab] = useState<'news' | 'forum' | 'saved' | 'favs'>('news')
+  const [tab, setTab] = useState<'news' | 'forum' | 'saved' | 'favs'>(() => {
+    const initRoute = readHashPlace(location.hash)
+    return initRoute?.tab ?? 'news'
+  })
   const [paperOpen, setPaperOpen] = useState(false)
   const [topic, setTopic] = useState('')
   const [newsFilter, setNewsFilter] = useState('')
@@ -114,6 +122,7 @@ export default function App() {
     setOnly(null)
     setTopic('')
     setNewsFilter('')
+    setSortBy('new')
     setMonths(0)
     setExpandedAlso({})
     setReaderOpen({})
@@ -155,7 +164,6 @@ export default function App() {
     saveMapMode(m)
   }
 
-  // Fetch Open-Meteo local weather for selected place
   const placeWxKey = place ? `${place.lat.toFixed(2)},${place.lon.toFixed(2)}` : ''
   const currentWeather = wxState?.key === placeWxKey ? wxState.data : null
 
@@ -169,7 +177,7 @@ export default function App() {
     return () => ctrl.abort()
   }, [place])
 
-  // Sync URL `#p=...` & browser Back/Forward navigation
+  // Sync URL `#p=...` & browser Back/Forward + Service Worker notification tap navigation
   useEffect(() => {
     if (!place) return
     if (popNavRef.current) {
@@ -177,20 +185,34 @@ export default function App() {
       return
     }
     const nextHash = `#p=${encodePlace(place, level)}`
-    if (location.hash !== nextHash) {
+    if (!location.hash.startsWith(nextHash)) {
       window.history.pushState(null, '', `${location.pathname}${location.search}${nextHash}`)
     }
   }, [place, level])
 
   useEffect(() => {
-    const onPopState = () => {
-      const route = readHashPlace(location.hash)
+    const navigateToHash = (hashStr: string) => {
+      const route = readHashPlace(hashStr)
       if (!route) return
       popNavRef.current = true
       pickOnGlobe(route.place, true, route.level ?? 0)
+      if (route.tab) setTab(route.tab)
+    }
+    const onPopState = () => navigateToHash(location.hash)
+    const onSwMessage = (ev: MessageEvent) => {
+      if (ev.data?.type === 'OPEN_ALERT_PLACE' && typeof ev.data.url === 'string') {
+        try {
+          const u = new URL(ev.data.url, location.origin)
+          if (u.hash) navigateToHash(u.hash)
+        } catch { /* ignore */ }
+      }
     }
     window.addEventListener('popstate', onPopState)
-    return () => window.removeEventListener('popstate', onPopState)
+    navigator.serviceWorker?.addEventListener('message', onSwMessage)
+    return () => {
+      window.removeEventListener('popstate', onPopState)
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage)
+    }
   }, [pickOnGlobe])
 
   // PWA install prompt listener
@@ -236,7 +258,7 @@ export default function App() {
     document.title = totalUnread ? `(${totalUnread}) NewzLocal` : 'NewzLocal'
   }, [totalUnread])
 
-  // Load news / forum feed with full AbortController cancellation
+  // Load news / forum feed with full AbortController cancellation & strict date sorting
   useEffect(() => {
     if (!place || tab === 'favs' || tab === 'saved') return
     const ctrl = new AbortController()
@@ -245,18 +267,22 @@ export default function App() {
     shown.current = key
     let ver = 0
     let renderedVer = 0
-    const show = async (r: { articles: Article[]; scope: string; query: string }) => {
+    const show = async (r: FeedState) => {
       const mineVer = ++ver
       const articles = await translate(r.articles, lang, ctrl.signal)
       if (!ctrl.signal.aborted && mineVer >= renderedVer) {
         renderedVer = mineVer
-        setRes((prev) => ({
-          ...r,
-          articles:
+        setRes((prev) => {
+          const combined =
             fresh || !prev || tab === 'forum'
-              ? articles
-              : [...new Map([...prev.articles, ...articles].map((x) => [x.url, x])).values()].sort((x, y) => +y.date - +x.date).slice(0, 100),
-        }))
+              ? [...articles].sort((x, y) => +y.date - +x.date).slice(0, 100)
+              : [...new Map([...prev.articles, ...articles].map((x) => [x.url, x])).values()].sort((x, y) => +y.date - +x.date).slice(0, 100)
+          return {
+            ...r,
+            articles: combined,
+            exactCount: r.exactCount ?? combined.filter((a) => a.exactMatch !== false).length,
+          }
+        })
         setStamp(new Date())
         setBusy(false)
         setOffline(false)
@@ -280,9 +306,9 @@ export default function App() {
     run()
       .catch((x: Error) => {
         if (ctrl.signal.aborted || x.name === 'AbortError') return
-        const saved = tab === 'news' && months === 0 ? loadLast(`${label(place)}|${level}|${lang}`) : null
-        if (saved?.length) {
-          setRes({ articles: saved, scope: place.parts[level]?.name ?? place.parts[0].name, query: '' })
+        const cached = tab === 'news' && months === 0 ? loadLast(`${label(place)}|${level}|${lang}`) : null
+        if (cached?.length) {
+          setRes({ articles: cached, scope: place.parts[level]?.name ?? place.parts[0].name, query: '' })
           setOffline(true)
         } else {
           setErr(x.message)
@@ -293,6 +319,30 @@ export default function App() {
       })
     return () => ctrl.abort()
   }, [place, level, lang, tick, tab, months])
+
+  // Automatically fetch important Forum threads when a home address / street has 0 or few direct news articles
+  const spotKey = place ? `${place.lat.toFixed(4)},${place.lon.toFixed(4)},${level},${lang}` : ''
+  const needsForumSpotlight =
+    !!place &&
+    tab === 'news' &&
+    months === 0 &&
+    !!res &&
+    (res.exactCount ?? res.articles.length) < 5
+  const activeSpotItems = needsForumSpotlight && spotForum?.key === spotKey ? spotForum.items : null
+
+  useEffect(() => {
+    if (!needsForumSpotlight || !place || spotForum?.key === spotKey) return
+    const ctrl = new AbortController()
+    forum(place, level, 35, undefined, ctrl.signal)
+      .then((r) => translate(rankImportantForum(r.articles, 6), lang, ctrl.signal))
+      .then((items) => {
+        if (!ctrl.signal.aborted) setSpotForum({ key: spotKey, items })
+      })
+      .catch(() => {
+        if (!ctrl.signal.aborted) setSpotForum({ key: spotKey, items: [] })
+      })
+    return () => ctrl.abort()
+  }, [needsForumSpotlight, place, level, lang, spotForum?.key, spotKey])
 
   // Update news heat overlay & geo-tagged story pins on map
   useEffect(() => {
@@ -316,37 +366,51 @@ export default function App() {
     void syncPushSubscription(favs, lang, quiet).then(setPushActive)
   }, [favs, lang, quiet, perm])
 
-  // In-tab favourite alerts
+  // In-tab favourite alerts (checks BOTH new News AND new Forum posts for saved addresses, districts, cities & countries)
   useEffect(() => {
     if (!favs.length) return
     const ctrl = new AbortController()
     const check = async () => {
       let seen: Record<string, string[]> = {}
       try { seen = JSON.parse(localStorage.getItem('newzlocal.seen') ?? '{}') } catch { /* start over */ }
-      for (const f of favs.slice(0, 10)) {
+      for (const f of favs.slice(0, 12)) {
         if (ctrl.signal.aborted) return
         try {
           const key = label(f)
-          const { articles } = await news(f, 0, 10, false, undefined, 0, ctrl.signal)
+          const wantNews = f.alertNews !== false
+          const wantForum = f.alertForum !== false
+          const [nOut, fOut] = await Promise.all([
+            wantNews ? news(f, 0, 12, false, undefined, 0, ctrl.signal).catch(() => ({ articles: [] as Article[] })) : Promise.resolve({ articles: [] as Article[] }),
+            wantForum ? forum(f, 0, 12, undefined, ctrl.signal).catch(() => ({ articles: [] as Article[] })) : Promise.resolve({ articles: [] as Article[] }),
+          ])
+          const combined = [...nOut.articles, ...fOut.articles].sort((a, b) => +b.date - +a.date)
+          if (!combined.length) continue
           const old = seen[key]
-          const newOnes = old ? articles.filter((a) => !old.includes(a.url)) : []
-          const fresh = f.alert?.length ? newOnes.filter((a) => topicsOf(a.orig ?? a.title).some((id) => f.alert!.includes(id))) : newOnes
-          seen[key] = [...new Set([...articles.map((a) => a.url), ...(old ?? [])])].slice(0, 200)
+          const newOnes = old ? combined.filter((a) => !old.includes(a.url)) : []
+          const fresh = f.alert?.length
+            ? newOnes.filter((a) => topicsOf(a.orig ?? a.title).some((id) => f.alert!.includes(id)))
+            : newOnes
+          seen[key] = [...new Set([...combined.map((a) => a.url), ...(old ?? [])])].slice(0, 250)
           if (fresh.length) setFreshArts((u) => ({ ...u, [key]: [...fresh, ...(u[key] ?? [])].slice(0, 50) }))
-          if (fresh.length && !pushActive && 'Notification' in window && Notification.permission === 'granted' && !inQuiet(f.cat ? loadQuiet()[f.cat] : undefined)) {
+          if (
+            fresh.length &&
+            !pushActive &&
+            'Notification' in window &&
+            Notification.permission === 'granted' &&
+            !inQuiet(f.cat ? loadQuiet()[f.cat] : undefined)
+          ) {
             const [first] = await translate([fresh[0]], langRef.current, ctrl.signal)
-            const n = new Notification(key, {
-              body: fresh.length > 1 ? `${first.title} (+${fresh.length - 1})` : first.title,
-              tag: key,
-              renotify: true,
-            } as NotificationOptions)
-            n.onclick = () => {
-              window.focus()
-              pickOnGlobe(f, true)
-            }
+            const deepUrl = `./#p=${encodePlace(f, 0)}${first.forum ? '&tab=forum' : ''}`
+            const prefix = first.forum ? `💬 ${key}` : `📰 ${key}`
+            await showAppNotification(
+              prefix,
+              fresh.length > 1 ? `${first.title} (+${fresh.length - 1})` : first.title,
+              deepUrl,
+              key,
+            )
           }
         } catch { /* retry next round */ }
-        await new Promise((x) => setTimeout(x, 2000))
+        await new Promise((x) => setTimeout(x, 1800))
       }
       try { localStorage.setItem('newzlocal.seen', JSON.stringify(seen)) } catch { /* private mode */ }
     }
@@ -356,7 +420,7 @@ export default function App() {
       ctrl.abort()
       clearInterval(id)
     }
-  }, [favs, pickOnGlobe, pushActive])
+  }, [favs, pushActive])
 
   const openFav = (f: Place) => {
     const key = label(f)
@@ -489,6 +553,16 @@ export default function App() {
     })
   }
 
+  const enableNotifications = () => {
+    if (!('Notification' in window)) return
+    Notification.requestPermission()
+      .then((p) => {
+        setPerm(p)
+        if (p === 'granted') void showAppNotification('NewzLocal', t('notifyOn'))
+      })
+      .catch(() => {})
+  }
+
   const isFav = !!place && favs.some((f) => same(f, place))
   const commitFavs = (n: Place[]) => {
     setFavs(n)
@@ -497,11 +571,13 @@ export default function App() {
   const toggleFav = () => {
     if (!place) return
     if (!isFav && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission()
-        .then(setPerm)
-        .catch(() => {})
+      enableNotifications()
     }
-    commitFavs(isFav ? favs.filter((f) => !same(f, place)) : [...favs, place])
+    commitFavs(
+      isFav
+        ? favs.filter((f) => !same(f, place))
+        : [...favs, { ...place, alertNews: true, alertForum: true }],
+    )
   }
 
   const cycleSheet = () => setSheetSnap((s) => (s === 'half' ? 'full' : s === 'full' ? 'peek' : 'half'))
@@ -515,7 +591,7 @@ export default function App() {
     const filtered = base.filter((a) => {
       if (topic && tab === 'news' && !topicsOf(a.orig ?? a.title).includes(topic)) return false
       if (qNorm) {
-        const hay = norm(`${a.title} ${a.orig ?? ''} ${a.source} ${a.summary ?? ''}`)
+        const hay = norm(`${a.title} ${a.orig ?? ''} ${a.source} ${a.summary ?? ''} ${a.scopeTag ?? ''}`)
         if (!hay.includes(qNorm)) return false
       }
       return true
@@ -523,8 +599,11 @@ export default function App() {
     if (sortBy === 'hot') {
       return [...filtered].sort((a, b) => (b.also?.length ?? 0) - (a.also?.length ?? 0) || +b.date - +a.date)
     }
-    return filtered
+    // Strict chronological newest-first order (#01 is always the latest item)
+    return [...filtered].sort((a, b) => +b.date - +a.date)
   })()
+
+  const hasCascadedItems = !!res && visibleArticles.some((a) => a.exactMatch === false)
 
   return (
     <div className="app">
@@ -661,7 +740,7 @@ export default function App() {
           <ProgressBox
             key={`area-${areaProgress.id}-${areaProgress.step}`}
             label={t('areas')}
-            detail={t(areaProgress.step === 1 ? 'areaStep1' : areaProgress.step === 2 ? 'areaStep2' : areaProgress.step === 3 ? 'areaStep3' : 'areaStep3')}
+            detail={t(areaProgress.step === 1 ? 'areaStep1' : areaProgress.step === 2 ? 'areaStep2' : 'areaStep3')}
             pct={areaProgress.pct}
             estTotalSec={areaProgress.estSec}
             onCancel={cancelAreas}
@@ -671,6 +750,7 @@ export default function App() {
 
         {tab === 'favs' ? (
           <FavsPanel
+            lang={lang}
             favs={favs}
             commitFavs={commitFavs}
             cats={cats}
@@ -681,12 +761,7 @@ export default function App() {
             setSrcsAndSave={(n) => { setSrcs(n); saveSources(n) }}
             unread={unread}
             perm={perm}
-            onEnableNotify={() => {
-              Notification.requestPermission().then((p) => {
-                setPerm(p)
-                if (p === 'granted') new Notification('NewzLocal', { body: t('notifyOn') })
-              })
-            }}
+            onEnableNotify={enableNotifications}
             pushActive={pushActive}
             mineBusy={mineBusy}
             onOpenMyPaper={openMyPaper}
@@ -815,7 +890,40 @@ export default function App() {
                 <button className="linkbtn" onClick={() => setOnly(null)}>{t('showAll')}</button>
               </p>
             )}
-            {!onlyNew && res && res.articles.length === 0 && <p className="muted">{t(tab === 'forum' ? 'noForum' : 'none')}</p>}
+
+            {/* Notice + Top Forum Spotlight when an address/street has 0 or sparse direct press articles */}
+            {tab === 'news' && !onlyNew && res && (res.exactCount ?? res.articles.length) === 0 && res.articles.length > 0 && (
+              <p className="note">
+                {t('noExactNewsNote', { p: res.scope, n: String(res.articles.length) })}
+              </p>
+            )}
+            {tab === 'news' && !onlyNew && activeSpotItems && activeSpotItems.length > 0 && (
+              <section className="spotbox">
+                <div className="spothead">
+                  <b>💬 {t('forumSpotlight', { p: res?.scope ?? place.parts[level]?.name ?? '' })}</b>
+                  <button type="button" className="linkbtn" onClick={() => setTab('forum')}>
+                    {t('seeAllForum')}
+                  </button>
+                </div>
+                <ul className="spotlist">
+                  {activeSpotItems.map((fa) => (
+                    <li key={fa.url}>
+                      <a href={fa.url} target="_blank" rel="noopener noreferrer">
+                        {fa.title}
+                      </a>
+                      <small>
+                        {fa.exactMatch && fa.scopeTag ? <span className="scopepill exact">📍 {fa.scopeTag}</span> : null}
+                        {fa.source} · {ago(fa.date, lang)}
+                      </small>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {!onlyNew && res && res.articles.length === 0 && (!activeSpotItems || activeSpotItems.length === 0) && (
+              <p className="muted">{t(tab === 'forum' ? 'noForum' : 'none')}</p>
+            )}
             {tab === 'news' && res && !onlyNew && (
               <TopicBar articles={res.articles.map((a) => ({ ...a, title: a.orig ?? a.title }))} topic={topic} setTopic={setTopic} t={t} />
             )}
@@ -856,6 +964,7 @@ export default function App() {
                 const isSaved = savedUrlSet.has(a.url)
                 const previewSum = rInfo?.summary ?? a.summary
                 const previewImg = rInfo?.image ?? a.image
+                const showScopePill = hasCascadedItems && a.scopeTag
                 return (
                   <li key={a.url} style={{ '--i': Math.min(i, 12) } as React.CSSProperties}>
                     <b className="no">{String(i + 1).padStart(2, '0')}</b>
@@ -865,6 +974,11 @@ export default function App() {
                       </a>
                       <small className="storymeta">
                         <span>
+                          {showScopePill && (
+                            <span className={a.exactMatch ? 'scopepill exact' : 'scopepill'}>
+                              {a.exactMatch ? `📍 ${a.scopeTag}` : a.scopeTag}
+                            </span>
+                          )}
                           {a.forum ? '◆ ' : ''}
                           {a.source} · {a.approx ? '≈ ' : ''}
                           {ago(a.date, lang)}

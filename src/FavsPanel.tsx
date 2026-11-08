@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react'
 import Compare from './Compare'
-import { type Place, type Quiet, QUIET0, getWorkerUrl, label, setWorkerUrl } from './lib'
+import type { Lang } from './i18n'
+import { type Place, type Quiet, QUIET0, getWorkerUrl, label, search, sendTestPush, setWorkerUrl } from './lib'
 import { TOPICS } from './topics'
 
 type T = (k: string, v?: Record<string, string>) => string
 
 type Props = {
+  lang: Lang
   favs: Place[]
   commitFavs: (next: Place[]) => void
   cats: string[]
@@ -25,6 +27,7 @@ type Props = {
 }
 
 export default function FavsPanel({
+  lang,
   favs,
   commitFavs,
   cats,
@@ -53,6 +56,15 @@ export default function FavsPanel({
   const [cmpSel, setCmpSel] = useState<string[]>([])
   const [cmpOpen, setCmpOpen] = useState(false)
   const [srcDraft, setSrcDraft] = useState('')
+  const [addrQuery, setAddrQuery] = useState('')
+  const [addrHits, setAddrHits] = useState<Place[]>([])
+  const [addrBusy, setAddrBusy] = useState(false)
+  const [testState, setTestState] = useState<'idle' | 'sending' | 'done'>('idle')
+
+  const isIosBrowser =
+    typeof navigator !== 'undefined' &&
+    /iPad|iPhone|iPod/.test(navigator.userAgent) &&
+    !('Notification' in window)
 
   const catNames = [...new Set([...cats, ...favs.map((f) => f.cat).filter((c): c is string => !!c)])]
 
@@ -102,6 +114,45 @@ export default function FavsPanel({
     commitFavs(favs.map((x) => (label(x) === k ? { ...x, alert: undefined } : x)))
   }
 
+  const setSourceToggle = (f: Place, field: 'alertNews' | 'alertForum', enabled: boolean) => {
+    const k = label(f)
+    commitFavs(favs.map((x) => (label(x) === k ? { ...x, [field]: enabled } : x)))
+  }
+
+  const searchWatchAddress = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!addrQuery.trim() || addrBusy) return
+    setAddrBusy(true)
+    try {
+      const found = await search(addrQuery, lang)
+      setAddrHits(found)
+    } catch {
+      setAddrHits([])
+    } finally {
+      setAddrBusy(false)
+    }
+  }
+
+  const addWatchedPlace = (p: Place) => {
+    const k = label(p)
+    if (!favs.some((x) => label(x) === k)) {
+      commitFavs([{ ...p, alertNews: true, alertForum: true, ...(favCat ? { cat: favCat } : {}) }, ...favs])
+    }
+    setAddrQuery('')
+    setAddrHits([])
+    if ('Notification' in window && Notification.permission === 'default') {
+      onEnableNotify()
+    }
+  }
+
+  const handleTestPush = async () => {
+    if (testState === 'sending') return
+    setTestState('sending')
+    await sendTestPush('NewzLocal', t('notifyOn'))
+    setTestState('done')
+    setTimeout(() => setTestState('idle'), 3000)
+  }
+
   const addSource = () => {
     const d = srcDraft.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
     if (!d.includes('.') || srcs.includes(d)) return setSrcDraft('')
@@ -148,6 +199,8 @@ export default function FavsPanel({
     const isCmp = cmpSel.includes(k)
     const hasTopicAlerts = !!f.alert?.length
     const isAlertExpanded = alertOpen === k
+    const watchNews = f.alertNews !== false
+    const watchForum = f.alertForum !== false
     return (
       <li key={k} className="favrow" style={{ flexWrap: 'wrap' }} onPointerDown={(e) => startDrag(e, f)}>
         <span className="grip" aria-hidden="true" title={t('category')}>⠿</span>
@@ -188,6 +241,17 @@ export default function FavsPanel({
         </button>
         {isAlertExpanded && (
           <div className="alertbox">
+            <div className="row" style={{ marginBottom: 6 }}>
+              <small>{t('alertSources')}:</small>
+              <label className="row" style={{ gap: 3 }}>
+                <input type="checkbox" checked={watchNews} onChange={(e) => setSourceToggle(f, 'alertNews', e.target.checked)} />
+                <span>{t('news')}</span>
+              </label>
+              <label className="row" style={{ gap: 3 }}>
+                <input type="checkbox" checked={watchForum} onChange={(e) => setSourceToggle(f, 'alertForum', e.target.checked)} />
+                <span>{t('forum')}</span>
+              </label>
+            </div>
             <small>{t('alertTopics')}:</small>
             <div className="chips">
               <button type="button" className={!hasTopicAlerts ? 'chip on' : 'chip'} style={{ padding: '3px 7px' }} onClick={() => clearTopicAlert(f)}>
@@ -218,6 +282,32 @@ export default function FavsPanel({
 
   return (
     <>
+      {/* Quick-add home address / place watcher */}
+      <form className="searchbar" onSubmit={searchWatchAddress}>
+        <input
+          value={addrQuery}
+          onChange={(e) => setAddrQuery(e.target.value)}
+          placeholder={t('addWatchAddr')}
+          aria-label={t('addWatchAddr')}
+        />
+        <button type="submit" className="locbtn" disabled={addrBusy} aria-label="＋">
+          {addrBusy ? '…' : '＋'}
+        </button>
+      </form>
+      {addrHits.length > 0 && (
+        <ul className="hits">
+          {addrHits.map((h) => (
+            <li key={label(h)}>
+              <button type="button" onClick={() => addWatchedPlace(h)}>
+                ＋ {label(h)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {isIosBrowser && <div className="note">{t('iosPushHint')}</div>}
+
       {perm !== 'granted' && 'Notification' in window && (
         <div className="note">
           {perm === 'denied' ? t('notifyDenied') : t('notifyOff')}{' '}
@@ -228,10 +318,22 @@ export default function FavsPanel({
           )}
         </div>
       )}
+
       <div className="chips">
         <button className="chip on" style={{ padding: '4px 10px' }} disabled={!favs.length || mineBusy} onClick={onOpenMyPaper}>
           ▤ {mineBusy ? '…' : t('myPaper')}
         </button>
+        {'Notification' in window && (
+          <button
+            type="button"
+            className="chip"
+            style={{ padding: '4px 10px' }}
+            onClick={handleTestPush}
+            disabled={testState === 'sending'}
+          >
+            🔔 {testState === 'done' ? t('testSent') : testState === 'sending' ? '…' : t('testPush')}
+          </button>
+        )}
         {favs.length >= 2 && (
           <button
             className={cmpPlaces.length === 2 ? 'chip on' : 'chip'}

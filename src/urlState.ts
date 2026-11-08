@@ -1,6 +1,6 @@
 import type { Place } from './lib'
 
-export type RouteState = { place: Place; level?: number }
+export type RouteState = { place: Place; level?: number; tab?: 'news' | 'forum' }
 
 /** Encodes a Place (and optional breadcrumb level) into a compact UTF-8 URL-safe Base64 token. */
 export function encodePlace(place: Place, level = 0): string {
@@ -37,5 +37,9 @@ export function decodePlace(raw: string): RouteState | null {
 
 export function readHashPlace(hash = location.hash): RouteState | null {
   const m = /#p=([^&]+)/.exec(hash)?.[1]
-  return m ? decodePlace(m) : null
+  if (!m) return null
+  const state = decodePlace(m)
+  if (!state) return null
+  const tabMatch = /[&#]tab=(news|forum)/.exec(hash)?.[1] as 'news' | 'forum' | undefined
+  return tabMatch ? { ...state, tab: tabMatch } : state
 }
