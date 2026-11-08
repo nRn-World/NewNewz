@@ -326,3 +326,26 @@ footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var
 .paper-clip:hover{background:#1b140d;color:#e0cfa6}
 .story-sum{margin:4px 0 2px;font:400 13px/1.35 'Old Standard TT',Georgia,serif;color:#2b2116}
 
+/* Home-address watcher, iOS push hint & News/Forum alert toggles */
+.watchbox{display:grid;gap:6px;padding:8px 10px;border:2px solid var(--ink);background:var(--paper2);box-shadow:3px 3px 0 var(--ink)}
+.watchbox .catadd{border:0}
+.watchbox .catadd input{background:var(--paper);padding:5px 7px;border:1.5px solid var(--ink)}
+.pushhint{margin:0;padding:6px 9px;border:1.5px dashed var(--red);background:var(--paper2);font-size:12px;line-height:1.38;color:var(--ink)}
+.alertchk{display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer}
+.alertchk input{width:auto;accent-color:var(--red)}
+
+/* Automatic Forum Spotlight box when an exact address has few/no press articles */
+.spotbox{border:2px solid var(--ink);background:var(--paper2);box-shadow:3px 3px 0 var(--red);padding:9px 11px;display:grid;gap:7px}
+.spothead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1.5px solid var(--ink);padding-bottom:5px;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.spotlist{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.spotlist li{display:grid;gap:2px;padding-bottom:6px;border-bottom:1px dashed rgba(26,20,16,.3)}
+.spotlist li:last-child{padding-bottom:0;border-bottom:0}
+.spotlist a{font:700 15px/1.28 Fraunces,Georgia,serif;color:var(--ink);text-decoration:none}
+.spotlist a:hover{color:var(--red);text-decoration:underline}
+.spotlist small{font-size:11.5px;color:var(--mu);display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+
+/* Scope pill showing exact street match vs surrounding district/city cascade */
+.scopepill{display:inline-block;margin-inline-end:5px;padding:0 5px;border:1px solid var(--ink);background:var(--paper2);color:var(--ink);font:700 10.5px/1.35 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:.04em}
+.scopepill.exact{border-color:var(--red);background:var(--red);color:var(--paper)}
+
+

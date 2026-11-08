@@ -4,13 +4,25 @@ import { toggleSavedItem } from '../bookmarks'
 import { clusterArticles } from '../cluster'
 import { editionFor, wordsFor } from '../editions'
 import { localSubreddits } from '../forums'
-import { type Article, type Place, flashbackCreated, inQuiet, parseGdeltDate, target, toPlace } from '../lib'
+import {
+  type Article,
+  type Place,
+  clampDate,
+  flashbackCreated,
+  inQuiet,
+  parseFlashbackDate,
+  parseGdeltDate,
+  rankImportantForum,
+  streetBaseName,
+  target,
+  toPlace,
+} from '../lib'
 import { weatherSymbol } from '../weather'
 import { circle, rings } from '../overpass'
 import { STOP, hotWords, topicCounts, topicsOf } from '../topics'
 import { decodePlace, encodePlace, readHashPlace } from '../urlState'
 // @ts-expect-error Worker module is plain ESM JS
-import { encryptWebPush, signVapidJwt } from '../../worker/index.js'
+import { encryptWebPush, getOrCreateVapid, signVapidJwt } from '../../worker/index.js'
 
 const art = (title: string, source = 'SVT', hoursAgo = 1, extra: Partial<Article> = {}): Article => ({
   url: `https://example.com/${encodeURIComponent(title)}-${source}`,
@@ -273,5 +285,68 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     const privJwk = await crypto.subtle.exportKey('jwk', vapidPair.privateKey)
     const jwt = await signVapidJwt('https://fcm.googleapis.com/fcm/send/abc', JSON.stringify(privJwk))
     expect(jwt.split('.')).toHaveLength(3)
+  })
+
+  it('auto-generates and persists VAPID keys in SUBS_KV when env secrets are omitted', async () => {
+    const store = new Map<string, string>()
+    const mockEnv = {
+      SUBS_KV: {
+        get: async (k: string) => store.get(k) ?? null,
+        put: async (k: string, v: string) => { store.set(k, v) },
+      },
+    }
+    const v1 = await getOrCreateVapid(mockEnv)
+    expect(v1?.publicKey.length).toBeGreaterThan(80)
+    const v2 = await getOrCreateVapid(mockEnv)
+    expect(v2?.publicKey).toBe(v1?.publicKey)
+  })
+
+  it('handles exact home addresses (house numbers), Flashback Idag/Igår dates, forum importance ranking & #tab=forum deep links', () => {
+    expect(streetBaseName('Sveavägen 44B')).toBe('Sveavägen')
+    expect(streetBaseName('12 Rue de Rivoli')).toBe('Rue de Rivoli')
+    expect(streetBaseName('İstiklal Caddesi No: 18')).toBe('İstiklal Caddesi')
+
+    const home = toPlace({
+      geometry: { coordinates: [18.06, 59.34] },
+      properties: {
+        type: 'house',
+        street: 'Sveavägen',
+        housenumber: '44',
+        district: 'Norrmalm',
+        city: 'Stockholm',
+        country: 'Sverige',
+        countrycode: 'SE',
+      },
+    })
+    expect(home.parts[0]).toEqual({ level: 'street', name: 'Sveavägen 44' })
+    const homeTarget = target(home, 0)
+    expect(homeTarget.key).toBe('sveavagen')
+    expect(homeTarget.queries[0]).toBe('"Sveavägen 44" "Norrmalm"')
+    expect(homeTarget.queries).toContain('"Sveavägen" "Norrmalm"')
+
+    const refNow = new Date('2026-11-08T15:00:00Z')
+    expect(parseFlashbackDate('Idag 14:25', refNow)?.getHours()).toBe(14)
+    expect(parseFlashbackDate('Igår 23:10', refNow)?.getDate()).toBe(7)
+    expect(parseFlashbackDate('2026-11-05 09:30', refNow)?.getFullYear()).toBe(2026)
+
+    // Future-dated RSS timestamps are clamped so real newest items stay #01
+    const future = clampDate(new Date(Date.now() + 86_400_000))
+    expect(+future).toBeLessThanOrEqual(Date.now() + 1000)
+
+    // Forum spotlight ranking prioritizes exact street incidents + active comment counts
+    const threads: Article[] = [
+      art('Allmän fråga om vädret i Stockholm', 'reddit r/stockholm (2)', 1, { forum: true, exactMatch: false }),
+      art('Polisinsats och avspärrning på Sveavägen 44 just nu', 'flashback', 4, { forum: true, exactMatch: true, scopeTag: 'Sveavägen 44' }),
+      art('Diskussion om trafiken i Norrmalm', 'reddit r/stockholm (45)', 3, { forum: true, exactMatch: false }),
+    ]
+    const ranked = rankImportantForum(threads, 3)
+    expect(ranked[0].title).toContain('Sveavägen 44')
+    expect(ranked[1].title).toContain('Norrmalm')
+
+    // Push notification deep links with &tab=forum open directly into Forum tab
+    const forumHash = `#p=${encodePlace(home, 0)}&tab=forum`
+    const route = readHashPlace(forumHash)
+    expect(route?.tab).toBe('forum')
+    expect(route?.place.parts[0].name).toBe('Sveavägen 44')
   })
 })

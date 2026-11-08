@@ -24,6 +24,11 @@ const en: D = {
   noPreview: 'No excerpt provided by source — open the article below.',
   mapSat: 'Satellite', mapPaper: 'Paper', mapDark: 'Night', severeWx: 'Severe weather',
   workerLabel: 'Cloudflare Worker URL (optional)',
+  addWatchAddr: 'Add home address or place to watch…', testPush: 'Send test alert', testSent: 'Test alert sent!',
+  iosPushHint: 'On iPhone: tap Share → Add to Home Screen to receive lock-screen push alerts.',
+  alertSources: 'Notify me on', forumSpotlight: 'Top forum discussions about {p}',
+  noExactNewsNote: 'No direct press articles on {p} yet — showing top forum posts + latest {n} nearby local news in date order.',
+  seeAllForum: 'All forum posts →',
 }
 
 const sv: D = {
@@ -47,6 +52,11 @@ const sv: D = {
   noPreview: 'Ingen ingress i flödet — öppna artikeln nedan.',
   mapSat: 'Satellit', mapPaper: 'Karta', mapDark: 'Natt', severeWx: 'Oväder',
   workerLabel: 'Cloudflare Worker-URL (valfri)',
+  addWatchAddr: 'Lägg till hemadress eller plats att bevaka…', testPush: 'Skicka testnotis', testSent: 'Testnotis skickad!',
+  iosPushHint: 'På iPhone: tryck Dela → Lägg till på hemskärmen för att få pushnotiser på telefonen.',
+  alertSources: 'Skicka notis vid nya', forumSpotlight: 'Viktigaste foruminlägg om {p}',
+  noExactNewsNote: 'Inga direkta nyhetsartiklar om {p} ännu — visar viktigaste foruminläggen + senaste {n} lokala nyheterna i datumordning.',
+  seeAllForum: 'Alla foruminlägg →',
 }
 
 const tr_: D = {
@@ -70,6 +80,11 @@ const tr_: D = {
   noPreview: 'Özet bulunamadı — haberi aşağıdan açın.',
   mapSat: 'Uydu', mapPaper: 'Harita', mapDark: 'Gece', severeWx: 'Şiddetli hava',
   workerLabel: 'Cloudflare Worker URL (isteğe bağlı)',
+  addWatchAddr: 'Takip edilecek ev adresi veya yer ekle…', testPush: 'Test bildirimi gönder', testSent: 'Test bildirimi gönderildi!',
+  iosPushHint: 'iPhone’da bildirim almak için Paylaş → Ana Ekrana Ekle’yi seçin.',
+  alertSources: 'Bildirim kaynakları', forumSpotlight: '{p} hakkında öne çıkan forum başlıkları',
+  noExactNewsNote: '{p} için doğrudan haber yok — önemli forum başlıkları + tarih sırasıyla son {n} yerel haber gösteriliyor.',
+  seeAllForum: 'Tüm forum yazıları →',
 }
 
 const ar: D = {
@@ -93,6 +108,11 @@ const ar: D = {
   noPreview: 'لا يوجد مقتطف — افتح الخبر أدناه.',
   mapSat: 'قمر صناعي', mapPaper: 'خريطة', mapDark: 'ليلي', severeWx: 'طقس قاسٍ',
   workerLabel: 'رابط Cloudflare Worker (اختياري)',
+  addWatchAddr: 'أضف عنوان المنزل أو مكاناً للمتابعة…', testPush: 'إرسال إشعار تجريبي', testSent: 'تم إرسال الإشعار!',
+  iosPushHint: 'على iPhone: اضغط مشاركة ← إضافة إلى الشاشة الرئيسية لتلقي الإشعارات.',
+  alertSources: 'تنبيهي عند جديد في', forumSpotlight: 'أهم نقاشات المنتديات حول {p}',
+  noExactNewsNote: 'لا توجد أخبار مباشرة عن {p} بعد — تُعرض أهم نقاشات المنتديات + أحدث {n} خبر محلي بالترتيب الزمني.',
+  seeAllForum: 'كل منشورات المنتديات ←',
 }
 
 const es: D = {
@@ -116,6 +136,11 @@ const es: D = {
   noPreview: 'Sin extracto — abre el artículo abajo.',
   mapSat: 'Satélite', mapPaper: 'Mapa', mapDark: 'Noche', severeWx: 'Clima severo',
   workerLabel: 'URL de Cloudflare Worker (opcional)',
+  addWatchAddr: 'Añadir dirección de casa o lugar a vigilar…', testPush: 'Enviar alerta de prueba', testSent: '¡Alerta enviada!',
+  iosPushHint: 'En iPhone: pulsa Compartir → Añadir a pantalla de inicio para recibir alertas.',
+  alertSources: 'Avisarme de nuevos en', forumSpotlight: 'Debates destacados en foros sobre {p}',
+  noExactNewsNote: 'Sin noticias directas de {p} — mostrando foros destacados + últimas {n} noticias locales por fecha.',
+  seeAllForum: 'Ver todos los foros →',
 }
 
 const fr: D = {
@@ -139,6 +164,11 @@ const fr: D = {
   noPreview: 'Aucun extrait — ouvrez l’article ci-dessous.',
   mapSat: 'Satellite', mapPaper: 'Carte', mapDark: 'Nuit', severeWx: 'Météo sévère',
   workerLabel: 'URL Cloudflare Worker (optionnel)',
+  addWatchAddr: 'Ajouter votre adresse ou lieu à surveiller…', testPush: 'Tester la notification', testSent: 'Notification envoyée !',
+  iosPushHint: 'Sur iPhone : Partager → Sur l’écran d’accueil pour recevoir les notifications.',
+  alertSources: 'M’alerter pour', forumSpotlight: 'Discussions importantes sur {p}',
+  noExactNewsNote: 'Aucun article direct sur {p} — affichage des forums clés + {n} dernières actualités locales par date.',
+  seeAllForum: 'Tous les forums →',
 }
 
 const de: D = {
@@ -162,6 +192,11 @@ const de: D = {
   noPreview: 'Kein Auszug verfügbar — Artikel unten öffnen.',
   mapSat: 'Satellit', mapPaper: 'Karte', mapDark: 'Nacht', severeWx: 'Unwetter',
   workerLabel: 'Cloudflare Worker-URL (optional)',
+  addWatchAddr: 'Heimatadresse oder Ort zur Überwachung hinzufügen…', testPush: 'Test-Push senden', testSent: 'Test gesendet!',
+  iosPushHint: 'Auf dem iPhone: Teilen → Zum Home-Bildschirm für Push-Mitteilungen.',
+  alertSources: 'Benachrichtigen bei', forumSpotlight: 'Wichtige Forenbeiträge zu {p}',
+  noExactNewsNote: 'Noch keine direkten Artikel zu {p} — wichtigste Forenbeiträge + letzte {n} Lokalnachrichten nach Datum.',
+  seeAllForum: 'Alle Forenbeiträge →',
 }
 
 export const EXTRA: Record<Lang, D> = { en, sv, tr: tr_, ar, es, fr, de }

@@ -2,6 +2,10 @@ import { norm } from './areas'
 import { clusterArticles, type RelatedItem } from './cluster'
 import { editionFor, wordsFor } from './editions'
 import { lemmyDiscussions, localSubreddits, regionalDiscussions } from './forums'
+import { topicsOf } from './topics'
+import { encodePlace } from './urlState'
+
+const DEFAULT_WORKER_URL = 'https://newzlocal-proxy.bynrnworld.workers.dev'
 
 function resolveApiBase(): string {
   const fromEnv = (import.meta.env.VITE_PROXY_URL || import.meta.env.VITE_API_URL) as string | undefined
@@ -10,6 +14,7 @@ function resolveApiBase(): string {
     const custom = localStorage.getItem('newzlocal.workerUrl')?.trim()
     if (custom && /^https:\/\/[a-z0-9.-]+/i.test(custom)) return custom.replace(/\/+$/, '')
   } catch { /* ignore */ }
+  if (typeof window !== 'undefined') return DEFAULT_WORKER_URL
   return ''
 }
 
@@ -18,7 +23,16 @@ const API = resolveApiBase()
 
 export type Level = 'street' | 'district' | 'city' | 'state' | 'country'
 export type Part = { level: Level; name: string }
-export type Place = { lat: number; lon: number; cc?: string; parts: Part[]; cat?: string; alert?: string[] } // parts: most specific first
+export type Place = {
+  lat: number
+  lon: number
+  cc?: string
+  parts: Part[]
+  cat?: string
+  alert?: string[]
+  alertNews?: boolean
+  alertForum?: boolean
+} // parts: most specific first
 export type Article = {
   url: string
   title: string
@@ -30,7 +44,28 @@ export type Article = {
   orig?: string
   approx?: boolean
   lang?: string
+  scopeTag?: string
+  exactMatch?: boolean
+  score?: number
   also?: RelatedItem[]
+}
+
+/** Strips house numbers / apartment suffixes from a street address ("Ribegatan 31B" -> "Ribegatan") for news/forum queries. */
+export function streetBaseName(raw: string): string {
+  const s = raw
+    .trim()
+    .replace(/\b(?:no|nr|lgh|apt|unit)[:.\s-]*\d+[a-z]?\b/gi, '')
+    .replace(/\s+\d+[a-z]?(?:[-/]\d+[a-z]?)?$/i, '')
+    .replace(/^\d+[a-z]?\s+(?=[A-Za-z\u00C0-\u024F\u0400-\u04FF\u0600-\u06FF])/u, '')
+    .trim()
+  return s.length >= 2 ? s : raw.trim()
+}
+
+/** Clamps erroneous future RSS timestamps so broken publisher clocks never block genuinely newest news at #01. */
+export function clampDate(d: Date, nowMs = Date.now()): Date {
+  const t = d.getTime()
+  if (isNaN(t)) return d
+  return t > nowMs + 60_000 ? new Date(nowMs) : d
 }
 
 const PHOTON = 'https://photon.komoot.io'
@@ -61,11 +96,16 @@ export function toPlace(f: Feat): Place {
   }
 
   const isSettlement = p.type === 'city' || p.type === 'town' || p.type === 'village' || p.osm_value === 'city' || p.osm_value === 'town'
-  add('street', p.street || (p.type === 'street' ? p.name : undefined))
+  const rawStreet = p.street || (p.type === 'street' ? p.name : undefined)
+  const fullStreet = rawStreet && p.housenumber && !rawStreet.includes(p.housenumber) ? `${rawStreet} ${p.housenumber}` : rawStreet
+  add('street', fullStreet)
   if (!isSettlement) {
-    add('district', p.district || p.locality || (p.type === 'district' || p.type === 'locality' ? p.name : undefined))
+    add(
+      'district',
+      p.district || p.suburb || p.quarter || p.neighbourhood || p.locality || (p.type === 'district' || p.type === 'locality' ? p.name : undefined),
+    )
   }
-  add('city', (isSettlement ? p.name : undefined) || p.city || p.county)
+  add('city', (isSettlement ? p.name : undefined) || p.city || p.town || p.municipality || p.county)
   add('state', p.state || (p.type === 'state' ? p.name : undefined))
   add('country', p.country)
   return { lat, lon, parts, cc: p.countrycode }
@@ -84,48 +124,74 @@ async function photon(q: string, lang: string, signal?: AbortSignal): Promise<Pl
   return ((await r.json()).features as Feat[]).map(toPlace).filter((p) => p.parts.length)
 }
 
-type NomHit = { lat: string; lon: string; name: string; namedetails?: { name?: string }; address: Record<string, string> }
+type NomHit = { lat: string; lon: string; name: string; type?: string; class?: string; namedetails?: { name?: string }; address: Record<string, string> }
 
 let nomNext = 0
-/** Nominatim finds towns, suburbs and villages that Photon ranks below streets (e.g. the suburb Kista). Polite 1 req/s spacing. */
+/** Nominatim finds exact home addresses, streets, suburbs and villages. Polite 1 req/s spacing. */
 async function nominatim(q: string, signal?: AbortSignal): Promise<Place[]> {
   const wait = nomNext - Date.now()
   nomNext = Math.max(Date.now(), nomNext) + 1050
   if (wait > 0) await abortableSleep(wait, signal)
+  const looksLikeAddress = /\d/.test(q) || q.trim().split(/[\s,]+/).length >= 2
+  const featParam = looksLikeAddress ? '' : '&featureType=settlement'
   const r = await fetch(
-    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&namedetails=1&limit=5&featureType=settlement&accept-language=zz`,
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&namedetails=1&limit=6${featParam}&accept-language=zz`,
     { signal: withTimeout(signal, 8000) },
   )
   if (!r.ok) return []
-  return ((await r.json()) as NomHit[]).map((x) => {
-    const a = x.address
-    const name = x.namedetails?.name ?? x.name
-    const parts: Part[] = [{ level: 'city', name }]
-    const up = [a.city, a.state, a.municipality].find((v) => v && norm(v) !== norm(name))
-    if (up) parts.push({ level: 'state', name: up })
-    if (a.country) parts.push({ level: 'country', name: a.country })
-    return { lat: +x.lat, lon: +x.lon, cc: a.country_code, parts }
-  })
+  return ((await r.json()) as NomHit[])
+    .map((x) => {
+      const a = x.address ?? {}
+      const parts: Part[] = []
+      const add = (lv: Level, nm?: string) => {
+        if (nm && !parts.some((p) => norm(p.name) === norm(nm))) parts.push({ level: lv, name: nm })
+      }
+      const road = a.road || a.pedestrian || a.residential || (x.class === 'highway' ? (x.namedetails?.name ?? x.name) : undefined)
+      if (road) {
+        add('street', a.house_number ? `${road} ${a.house_number}` : road)
+      }
+      const suburb = a.suburb || a.neighbourhood || a.quarter || a.city_district || a.borough
+      if (suburb) add('district', suburb)
+      const city = a.city || a.town || a.village || a.municipality || (!road ? (x.namedetails?.name ?? x.name) : undefined)
+      if (city) add('city', city)
+      if (a.state) add('state', a.state)
+      if (a.country) add('country', a.country)
+      return { lat: +x.lat, lon: +x.lon, cc: a.country_code, parts }
+    })
+    .filter((p) => p.parts.length > 0)
 }
 
 const searchCache = new Map<string, Place[]>()
 
-/** Photon matches strictly, so "Ribegatan Kista" finds nothing; retry with fewer words until something matches. */
+/** Searches full home addresses ("Ribegatan 31, 164 45 Kista"), streets, districts, cities and countries. */
 export async function search(q: string, lang = 'en', signal?: AbortSignal): Promise<Place[]> {
   const clean = q.trim()
   if (!clean) return []
   const cached = searchCache.get(clean.toLowerCase())
   if (cached) return cached
+
+  // Build smart address-aware query candidates so stripping postal/house numbers never drops the city name
+  const noPostal = clean.replace(/\b\d{3}\s?\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim()
+  const noHouse = noPostal.replace(/\b\d+[a-z]?\b/gi, ' ').replace(/\s+/g, ' ').trim()
   const words = clean.split(/[\s,]+/).filter(Boolean)
-  for (let n = words.length; n >= 1; n--) {
+  const candidates = [...new Set([
+    clean,
+    noPostal,
+    noHouse,
+    ...Array.from({ length: words.length }, (_, idx) => words.slice(0, words.length - idx).join(' ')),
+  ].filter((s) => s.length >= 2))]
+
+  for (const text of candidates) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    const text = words.slice(0, n).join(' ')
     const [ph, nom] = await Promise.allSettled([photon(text, lang, signal), nominatim(text, signal)])
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const photonHits = ph.status === 'fulfilled' ? ph.value : []
     const own = new Map(photonHits.map((h) => [label(h), h]))
     const noms = (nom.status === 'fulfilled' ? nom.value : []).map((h) => own.get(label(h)) ?? h)
-    const exact = [...photonHits, ...noms].filter((h) => norm(h.parts[0].name) === norm(text))
+    const normClean = norm(clean)
+    const exact = [...photonHits, ...noms].filter(
+      (h) => norm(h.parts[0].name) === norm(text) || normClean.includes(norm(streetBaseName(h.parts[0].name))),
+    )
     const hits = [...exact, ...photonHits, ...noms]
     if (hits.length) {
       const deduped = [...new Map(hits.map((h) => [label(h), h])).values()]
@@ -216,6 +282,7 @@ const interval = (when: string) => {
 }
 
 function parseGoogleRssXml(xmlText: string, lang: string): Article[] {
+  if (!/<rss\b|<channel\b|<feed\b/i.test(xmlText)) throw new Error('err.source')
   const doc = new DOMParser().parseFromString(xmlText, 'text/xml')
   if (doc.querySelector('parsererror')) throw new Error('err.source')
   const seen = new Set<string>()
@@ -279,8 +346,9 @@ async function bingHeadlines(query: string, country: string, when: string, signa
     .filter((a) => a.url && !seen.has(a.title) && seen.add(a.title))
 }
 
-// Google News RSS via VITE_GN_URL or /gn proxy, with automatic browser-direct CORS failover when no backend proxy is reachable.
+// Google News RSS via VITE_GN_URL or /gn proxy, with automatic browser-direct CORS failover when /gn is unavailable.
 const GN_ENV = import.meta.env.VITE_GN_URL as string | undefined
+let gnProxyDown = API.includes('.workers.dev') && !GN_ENV
 
 async function googleHeadlinesBrowserCors(targetRssUrl: string, lang: string, signal?: AbortSignal): Promise<Article[]> {
   const bridges = [
@@ -309,15 +377,15 @@ async function googleHeadlines(query: string, country: string, when: string, sig
   const qs = `q=${encodeURIComponent(q)}&hl=${encodeURIComponent(ed.hl)}&gl=${ed.cc}&ceid=${encodeURIComponent(ed.ceid)}`
   const canonicalRss = `https://news.google.com/rss/search?${qs}`
 
-  if (GN_ENV || !isLocalProxyBlocked()) {
+  if (GN_ENV || (!gnProxyDown && !isLocalProxyBlocked())) {
     try {
       const base = GN_ENV ?? `${API}/gn/rss/search`
       const r = await fetch(`${base}?${qs}`, { cache: 'no-store', signal: withTimeout(signal, GN_ENV || API ? 5000 : 2200) })
       if (r.ok) return parseGoogleRssXml(await r.text(), ed.lang)
-      if (!GN_ENV && (r.status === 404 || r.status >= 500)) markLocalProxyDown()
+      if (!GN_ENV) gnProxyDown = true
     } catch (e) {
       if (signal?.aborted) throw e
-      if (!GN_ENV) markLocalProxyDown()
+      if (!GN_ENV) gnProxyDown = true
     }
   }
 
@@ -383,16 +451,13 @@ async function headlines(query: string, country: string, when: string, signal?: 
     if (combined.length || settled.some((s) => s.status === 'fulfilled')) return combined
     throw new Error('err.source')
   }
-  try {
-    return await googleHeadlines(query, country, when, signal)
-  } catch (e) {
-    if (signal?.aborted) throw e
-  }
-  try {
-    return await bingHeadlines(query, country, when, signal)
-  } catch (e) {
-    if (signal?.aborted) throw e
-  }
+  const settled = await Promise.allSettled([
+    bingHeadlines(query, country, when, signal),
+    googleHeadlines(query, country, when, signal),
+  ])
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  const combined = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
+  if (combined.length) return combined
   return gdeltHeadlines(query, country, when, signal)
 }
 
@@ -466,6 +531,8 @@ async function redditFetch(query: string, max: number, sub: string, after: strin
           thumbnail?: string
           subreddit_name_prefixed?: string
           created_utc: number
+          num_comments?: number
+          ups?: number
         }
       }[]
     }
@@ -477,7 +544,8 @@ async function redditFetch(query: string, max: number, sub: string, after: strin
       summary: d.selftext ? d.selftext.replace(/\s+/g, ' ').trim().slice(0, 280) || undefined : undefined,
       image: d.thumbnail && /^https:\/\//i.test(d.thumbnail) ? d.thumbnail : undefined,
       source: `reddit ${d.subreddit_name_prefixed ?? ''}`.trim(),
-      date: new Date(d.created_utc * 1000),
+      date: clampDate(new Date(d.created_utc * 1000)),
+      score: (d.num_comments ?? 0) * 2 + (d.ups ?? 0),
       forum: true,
     }))
     .filter((a) => a.url.includes('/comments/') && a.title)
@@ -486,24 +554,38 @@ async function redditFetch(query: string, max: number, sub: string, after: strin
 /** What to search for: the chosen place plus its parent for context, and a word every real hit must contain. */
 export function target(place: Place, from: number) {
   const [own, ...up] = place.parts.slice(from)
+  const cleanName = own.level === 'street' ? streetBaseName(own.name) : own.name
+  const hasHouseNo = own.level === 'street' && norm(own.name) !== norm(cleanName)
   const ctx = up.find((x) => x.level === 'city') ?? up[0]
   const small = ['street', 'district'].includes(own.level)
-  const queries = small ? [...new Set([up[0], ctx].filter(Boolean).map((c) => `"${own.name}" "${c!.name}"`))] : [`"${own.name}"`]
-  const query = queries[0]
-  const minKeyLen = /[\u0600-\u06ff\u3040-\u9fff\uac00-\ud7af]/.test(own.name) ? 2 : 4
-  const key = small ? norm(own.name).split(' ').filter((w) => w.length >= minKeyLen).sort((x, y) => y.length - x.length)[0] : undefined
-  const fq = [own, small ? ctx : undefined].filter(Boolean).map((x) => x!.name).join(' ')
-  return { own, query, queries, key, fq }
+  const parents = [up[0], ctx].filter(Boolean) as Part[]
+  const queries = small
+    ? [
+        ...new Set([
+          ...(hasHouseNo ? parents.map((c) => `"${own.name}" "${c.name}"`) : []),
+          ...parents.map((c) => `"${cleanName}" "${c.name}"`),
+        ]),
+      ]
+    : [`"${cleanName}"`]
+  const query = queries[0] ?? `"${cleanName}"`
+  const minKeyLen = /[\u0600-\u06ff\u3040-\u9fff\uac00-\ud7af]/.test(cleanName) ? 2 : 4
+  const key = small ? norm(cleanName).split(' ').filter((w) => w.length >= minKeyLen).sort((x, y) => y.length - x.length)[0] : undefined
+  const fq = [cleanName, small && ctx ? ctx.name : undefined].filter(Boolean).join(' ')
+  return { own, cleanName, query, queries, key, fq }
 }
 
 export function mergeAll(lists: Article[][], key: string | undefined, want: number, scope = '') {
+  const nowMs = Date.now()
   const unique = lists
     .flat()
     .filter((a) => !isNaN(+a.date))
+    .map((a) => (+a.date > nowMs + 60_000 ? { ...a, date: clampDate(a.date, nowMs) } : a))
     .filter((a, i, all) => all.findIndex((b) => b.url === a.url || norm(b.title) === norm(a.title)) === i)
-    .filter((a) => !key || norm(a.title).includes(key))
+    .filter((a) => !key || a.exactMatch === false || norm(`${a.title} ${a.summary ?? ''}`).includes(key))
     .sort((a, b) => +b.date - +a.date)
-  return clusterArticles(unique, scope).slice(0, want)
+  return clusterArticles(unique, scope)
+    .sort((a, b) => +b.date - +a.date)
+    .slice(0, want)
 }
 
 const LADDER = ['1h', '3h', '6h', '12h', '1d', '2d', '4d', '7d', '14d', '30d', '90d', '180d', '1y']
@@ -519,104 +601,180 @@ export const saveSources = (l: string[]) => {
 
 const day = (d: Date) => d.toISOString().slice(0, 10)
 
-const newsCache = new Map<string, { at: number; r: { articles: Article[]; scope: string; query: string } }>()
+const newsCache = new Map<string, { at: number; r: { articles: Article[]; scope: string; query: string; exactCount: number } }>()
 
-/** `onPartial` gets the list as soon as the first answer is in and again after every deeper window, so the screen fills at once. */
+/**
+ * Fetches up to `want` (default 100) local news articles sorted strictly newest-first (`+b.date - +a.date`).
+ * For specific street addresses or small districts that have fewer than `want` direct press mentions,
+ * automatically cascades outward through the immediate neighbourhood / municipality so the user always sees
+ * the latest 100 local stories in strict date order (with `scopeTag` + `exactMatch` preserved on each story).
+ */
 export async function news(
   place: Place,
   from: number,
   want: number,
   deep = true,
-  onPartial?: (r: { articles: Article[]; scope: string; query: string }) => void,
+  onPartial?: (r: { articles: Article[]; scope: string; query: string; exactCount: number }) => void,
   monthsBack = 0,
   signal?: AbortSignal,
   onProgress?: (pct: number) => void,
 ) {
-  const { own, queries, key } = target(place, from)
+  const primary = target(place, from)
   const cc = place.cc?.toUpperCase() ?? 'US'
-  const small = ['street', 'district'].includes(own.level)
-  // When local proxy is down, avoid doubling CORS bridge calls with 'US' unless the country itself is US
-  const editions = [...new Set(deep && !small && cc !== 'US' && !isLocalProxyBlocked() ? [cc, 'US'] : [cc])]
-  const ck = `${queries.join('|')}|${cc}|${monthsBack}`
+  const ck = `${primary.queries.join('|')}|${from}|${cc}|${monthsBack}|${want}`
   const hit = deep ? newsCache.get(ck) : undefined
   if (hit) {
     onProgress?.(100)
     onPartial?.(hit.r)
     if (Date.now() - hit.at < 60_000) return hit.r
   }
-  onProgress?.(18)
+  onProgress?.(15)
   let ok = 0
   const lists: Article[][] = []
-  const currentMerged = () => mergeAll(lists, key, want, own.name)
-  const emit = () => onPartial?.({ articles: currentMerged(), scope: own.name, query: queries[0] })
 
-  const win = async (q: string, w: string) => {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    const got = await Promise.allSettled(editions.map((e) => headlines(q, e, w, signal)))
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    got.forEach((x) => { if (x.status === 'fulfilled') { ok++; lists.push(x.value) } })
-    emit()
-    return Math.max(0, ...got.map((x) => (x.status === 'fulfilled' ? x.value.length : 0)))
+  const currentMerged = () => mergeAll(lists, primary.key, want, primary.cleanName)
+  const countExact = (arr: Article[]) => arr.filter((a) => a.exactMatch !== false).length
+  const emit = () => {
+    const merged = currentMerged()
+    onPartial?.({ articles: merged, scope: primary.own.name, query: primary.queries[0], exactCount: countExact(merged) })
   }
 
-  if (monthsBack > 0) {
-    const mid = Date.now() - monthsBack * 30.4 * 864e5
-    const w = `after:${day(new Date(mid - 15 * 864e5))} before:${day(new Date(mid + 15 * 864e5))}`
-    for (const q of queries) await win(q, w)
-    onProgress?.(90)
-    if (!ok) throw new Error('err.source')
-    const r = { articles: currentMerged(), scope: own.name, query: queries[0] }
-    newsCache.set(ck, { at: Date.now(), r })
-    return r
-  }
+  const runScope = async (idx: number, isPrimary: boolean) => {
+    const t = target(place, idx)
+    const small = ['street', 'district'].includes(t.own.level)
+    const editions = [...new Set(deep && !small && cc !== 'US' && !isLocalProxyBlocked() ? [cc, 'US'] : [cc])]
 
-  for (let qi = 0; qi < queries.length; qi++) {
-    const q = queries[qi]
-    onProgress?.(30 + Math.round((qi / queries.length) * 25))
-    if (!deep) { await win(q, '1d'); continue }
-    if ((await win(q, '')) < FULL || isLocalProxyBlocked()) continue
-    const seen = new Set<string>()
-    for (let li = 0; li < LADDER.length; li++) {
+    const tagItems = (items: Article[]): Article[] => {
+      if (isPrimary) {
+        return items
+          .filter((a) => !t.key || norm(`${a.title} ${a.summary ?? ''}`).includes(t.key))
+          .map((a) => ({ ...a, scopeTag: t.cleanName, exactMatch: true }))
+      }
+      return items
+        .filter((a) => !t.key || norm(`${a.title} ${a.summary ?? ''}`).includes(t.key))
+        .map((a) => ({ ...a, scopeTag: t.cleanName, exactMatch: false }))
+    }
+
+    const win = async (q: string, w: string) => {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      onProgress?.(Math.min(82, 55 + Math.round(((li + 1) / LADDER.length) * 27)))
-      const before = lists.length
-      const size = await win(q, LADDER[li])
-      lists.slice(before).flat().forEach((x) => seen.add(norm(x.title)))
-      if (seen.size >= want && size < FULL) break
+      const got = await Promise.allSettled(editions.map((e) => headlines(q, e, w, signal)))
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      got.forEach((x) => {
+        if (x.status === 'fulfilled') {
+          ok++
+          lists.push(tagItems(x.value))
+        }
+      })
+      emit()
+      return Math.max(0, ...got.map((x) => (x.status === 'fulfilled' ? x.value.length : 0)))
+    }
+
+    if (monthsBack > 0) {
+      const mid = Date.now() - monthsBack * 30.4 * 864e5
+      const w = `after:${day(new Date(mid - 15 * 864e5))} before:${day(new Date(mid + 15 * 864e5))}`
+      for (const q of t.queries) await win(q, w)
+      return
+    }
+
+    for (let qi = 0; qi < t.queries.length; qi++) {
+      const q = t.queries[qi]
+      if (!deep) {
+        await win(q, '1d')
+        continue
+      }
+      const initialRaw = await win(q, '')
+      if (initialRaw < FULL || isLocalProxyBlocked() || currentMerged().length >= want) continue
+      for (let li = 0; li < LADDER.length; li++) {
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+        if (isPrimary) onProgress?.(Math.min(78, 35 + Math.round(((li + 1) / LADDER.length) * 43)))
+        const size = await win(q, LADDER[li])
+        if (currentMerged().length >= want && size < FULL) break
+      }
+    }
+
+    if (deep && currentMerged().length < want) {
+      const fallbackQ = small && t.cleanName.length >= 5 ? `"${t.cleanName}"` : t.queries[0]
+      await gdeltHeadlines(fallbackQ, cc, '', signal)
+        .then((g) => {
+          if (g.length) {
+            ok++
+            lists.push(tagItems(g))
+            emit()
+          }
+        })
+        .catch(() => {})
+    }
+
+    if (deep && !isLocalProxyBlocked() && currentMerged().length < Math.min(want, 35)) {
+      const q = t.queries[0]
+      const w = wordsFor(cc)
+      const got = await Promise.allSettled(w.map((x) => bingHeadlines(`${q} ${x}`, cc, '', signal)))
+      got.forEach((x) => {
+        if (x.status === 'fulfilled') {
+          ok++
+          lists.push(tagItems(x.value))
+        }
+      })
+      emit()
     }
   }
 
-  // Supplement with GDELT local coverage when primary feeds returned few hits (or if small-place parent query was too strict)
-  if (deep && currentMerged().length < Math.min(want, 20)) {
-    onProgress?.(85)
-    const fallbackQ = small && own.name.length >= 6 ? `"${own.name}"` : queries[0]
-    await gdeltHeadlines(fallbackQ, cc, '', signal)
-      .then((g) => { if (g.length) { ok++; lists.push(g); emit() } })
+  onProgress?.(28)
+  await runScope(from, true)
+
+  // Outward local cascade: when a home street address or small district has < `want` (100) stories,
+  // fill with surrounding district / municipality news so the user gets up to 100 chronological local stories.
+  if (monthsBack === 0 && deep && currentMerged().length < want && from < place.parts.length - 1) {
+    for (let nextIdx = from + 1; nextIdx < place.parts.length; nextIdx++) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      const nextPart = place.parts[nextIdx]
+      // Avoid diluting city/district feeds with broad country-wide news if we already have solid local stories
+      if (nextPart.level === 'country' && currentMerged().length >= 20) break
+      onProgress?.(Math.min(90, 75 + nextIdx * 5))
+      await runScope(nextIdx, false)
+      if (currentMerged().length >= want) break
+    }
+  } else if (monthsBack === 0 && !deep && primary.own.level === 'street' && currentMerged().length === 0 && from + 1 < place.parts.length) {
+    // For background alert checks on a street address, also monitor immediate neighbourhood/district if present
+    if (place.parts[from + 1].level === 'district') {
+      await runScope(from + 1, false)
+    }
+  }
+
+  if (deep && API && currentMerged().length < Math.min(want, 15)) {
+    await keyed(primary.queries[0], cc, signal)
+      .then((l) => {
+        if (l.length) {
+          ok++
+          lists.push(l.map((a) => ({ ...a, scopeTag: primary.cleanName, exactMatch: true })))
+          emit()
+        }
+      })
       .catch(() => {})
-  }
-
-  // Bing topic-word expansion only when local proxy/Worker is reachable and stories are still sparse
-  if (deep && !isLocalProxyBlocked() && currentMerged().length < Math.min(want, 20)) {
-    onProgress?.(88)
-    const q = queries[0]
-    const w = wordsFor(cc)
-    const got = await Promise.allSettled(w.map((x) => bingHeadlines(`${q} ${x}`, cc, '', signal)))
-    got.forEach((x) => { if (x.status === 'fulfilled') { ok++; lists.push(x.value) } })
-    emit()
-  }
-
-  if (deep && API && currentMerged().length < Math.min(want, 12)) {
-    await keyed(queries[0], cc, signal).then((l) => { if (l.length) { ok++; lists.push(l); emit() } }).catch(() => {})
   }
 
   if (deep) {
     const custom = loadSources()
-    if (custom.length) await Promise.allSettled(custom.map((d) => win(`${queries[0]} site:${d}`, '')))
+    if (custom.length) {
+      const ed = cc
+      await Promise.allSettled(
+        custom.map((d) =>
+          headlines(`${primary.queries[0]} site:${d}`, ed, '', signal).then((items) => {
+            if (items.length) {
+              ok++
+              lists.push(items.map((a) => ({ ...a, scopeTag: primary.cleanName, exactMatch: true })))
+              emit()
+            }
+          }),
+        ),
+      )
+    }
   }
 
   onProgress?.(95)
   if (!ok) throw new Error('err.source')
-  const r = { articles: currentMerged(), scope: own.name, query: queries[0] }
+  const finalArticles = currentMerged()
+  const r = { articles: finalArticles, scope: primary.own.name, query: primary.queries[0], exactCount: countExact(finalArticles) }
   if (deep) newsCache.set(ck, { at: Date.now(), r })
   return r
 }
@@ -655,36 +813,88 @@ const FB_ANCHORS: [number, string][] = [[2720053, '2016-05-13T11:34:00'], [35076
 export function flashbackCreated(id: number): Date {
   const pts = FB_ANCHORS.map(([i, d]) => [i, +new Date(d)] as const)
   const [a, b] = id <= pts[1][0] ? [pts[0], pts[1]] : [pts[1], pts[2]]
-  return new Date(a[1] + ((id - a[0]) / (b[0] - a[0])) * (b[1] - a[1]))
+  return clampDate(new Date(a[1] + ((id - a[0]) / (b[0] - a[0])) * (b[1] - a[1])))
+}
+
+/** Parses Flashback `td_last_post` timestamps including `"Idag 20:15"`, `"Igår 18:40"`, and `"2026-11-08 14:22"`. */
+export function parseFlashbackDate(raw: string, now = new Date()): Date | null {
+  const text = raw.replace(/\s+/g, ' ').trim()
+  const iso = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})/)
+  if (iso) return clampDate(new Date(`${iso[1]}T${iso[2]}:${iso[3]}:00`), +now)
+
+  const rel = text.match(/\b(idag|ig[åa]r)\s+(\d{2}):(\d{2})/i)
+  if (rel) {
+    const d = new Date(now)
+    if (/^ig/i.test(rel[1])) d.setDate(d.getDate() - 1)
+    d.setHours(Number(rel[2]), Number(rel[3]), 0, 0)
+    return clampDate(d, +now)
+  }
+  return null
 }
 
 let fbNext = 0
 const fbCache = new Map<string, { at: number; rows: Article[] }>()
 
-async function flashbackPage(query: string, order: string, signal?: AbortSignal): Promise<Article[]> {
+async function flashbackPage(query: string, order: string, searchPosts = false, signal?: AbortSignal): Promise<Article[]> {
   if (isLocalProxyBlocked()) throw new Error('err.source')
-  const url = `${API}/fb/sok/?query=${encodeURIComponent(query)}&so=${order}`
+  const url = `${API}/fb/sok/?query=${encodeURIComponent(query)}&so=${order}${searchPosts ? '&sp=1' : ''}`
   const hit = fbCache.get(url)
   if (hit && Date.now() - hit.at < 300_000) return hit.rows
   const wait = fbNext - Date.now()
-  fbNext = Math.max(Date.now(), fbNext) + 5200
+  fbNext = Math.max(Date.now(), fbNext) + 4200
   if (wait > 0) await abortableSleep(wait, signal)
-  const r = await fetch(url, { signal: withTimeout(signal, 5000) })
+  const r = await fetch(url, { signal: withTimeout(signal, 6000) })
   if (!r.ok) throw new Error('err.source')
   const doc = new DOMParser().parseFromString(new TextDecoder('iso-8859-1').decode(await r.arrayBuffer()), 'text/html')
+
+  if (searchPosts) {
+    // Post-search mode (`sp=1`) finds street/address mentions inside individual Flashback posts
+    const postRows = [...doc.querySelectorAll('.post_head, .post')].flatMap((el) => {
+      const link = el.querySelector('a[href^="/sp"], a[href^="/p"], a[href^="/t"]')
+      if (!link) return []
+      const titleEl = el.querySelector('a[href^="/t"] strong, .post-heading a, a[href^="/t"]') ?? link
+      const bodyTxt = (el.querySelector('.post_message')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+      const dt = parseFlashbackDate(el.textContent ?? '') ?? new Date()
+      const href = link.getAttribute('href')!
+      return [{
+        url: new URL(href, 'https://www.flashback.org').href,
+        title: (titleEl.textContent ?? '').replace(/\s+/g, ' ').trim() || query,
+        summary: bodyTxt ? bodyTxt.slice(0, 260) : undefined,
+        source: 'flashback · inlägg',
+        date: dt,
+        score: 25,
+        forum: true,
+        lang: 'sv',
+      }]
+    })
+    if (postRows.length) {
+      fbCache.set(url, { at: Date.now(), rows: postRows })
+      return postRows
+    }
+  }
+
   const rows = [...doc.querySelectorAll('td.td_title')].flatMap((td) => {
     const a = td.querySelector('a[id^="thread_title_"]')
-    const m = td.closest('tr')?.querySelector('td.td_last_post')?.textContent?.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/)
-    if (!a || !m) return []
-    const section = td.querySelector('.thread-forum-title')?.textContent?.trim()
+    if (!a) return []
+    const trEl = td.closest('tr')
+    const lastPostTxt = trEl?.querySelector('td.td_last_post')?.textContent ?? ''
+    const lastDate = parseFlashbackDate(lastPostTxt)
     const id = Number(a.getAttribute('href')!.match(/\/t(\d+)/)?.[1])
-    if (!id) return []
+    if (!id && !lastDate) return []
+    const createdDate = id ? flashbackCreated(id) : lastDate!
+    // Use latest activity date when thread had recent posts so active discussions surface immediately
+    const activeRecently = lastDate && Date.now() - +lastDate < 30 * 864e5
+    const effectiveDate = activeRecently ? lastDate : createdDate
+    const repliesTxt = trEl?.querySelector('td.td_replies')?.textContent ?? ''
+    const replies = Number((repliesTxt.replace(/[^\d]/g, '') || '0').slice(0, 7)) || 0
+    const section = td.querySelector('.thread-forum-title')?.textContent?.trim()
     return [{
       url: new URL(a.getAttribute('href')!, 'https://www.flashback.org').href,
       title: a.textContent!.trim(),
       source: `flashback${section ? ` · ${section}` : ''}`,
-      date: flashbackCreated(id),
-      approx: true,
+      date: effectiveDate,
+      approx: !activeRecently,
+      score: replies + (activeRecently ? 40 : 0),
       forum: true,
       lang: 'sv',
     }]
@@ -701,63 +911,106 @@ export async function forum(
   signal?: AbortSignal,
   onProgress?: (pct: number) => void,
 ) {
-  const { own, fq } = target(place, from)
+  const primary = target(place, from)
   const cc = place.cc?.toUpperCase() ?? ''
-  const minKeyLen = /[\u0600-\u06ff\u3040-\u9fff\uac00-\ud7af]/.test(own.name) ? 2 : 4
-  const fkey = norm(own.name).split(' ').filter((w) => w.length >= minKeyLen).sort((x, y) => y.length - x.length)[0]
-  const named = (l: Article[]) => (fkey ? l.filter((x) => norm(x.title).includes(fkey)) : l)
-  const rq = fq.replace(/ı/g, 'i').replace(/İ/g, 'I')
   const acc = new Map<string, Article>()
   let doneTasks = 0
-  const placeNames = place.parts.slice(from).map((p) => p.name)
+  const placeNames = place.parts.slice(from).map((p) => (p.level === 'street' ? streetBaseName(p.name) : p.name))
   const subList = localSubreddits(cc, placeNames)
-  const totalTasks = 5 + (cc === 'SE' && !isLocalProxyBlocked() ? 1 : 0)
+  const totalTasks = 6 + (cc === 'SE' && !isLocalProxyBlocked() ? 1 : 0)
   onProgress?.(20)
 
   const snapshot = () => ({
-    articles: [...acc.values()].filter((a) => !isNaN(+a.date)).sort((a, b) => +b.date - +a.date).slice(0, want),
-    scope: own.name,
-    query: fq,
+    articles: [...acc.values()]
+      .filter((a) => !isNaN(+a.date))
+      .map((a) => (+a.date > Date.now() + 60_000 ? { ...a, date: clampDate(a.date) } : a))
+      .sort((a, b) => +b.date - +a.date)
+      .slice(0, want),
+    scope: primary.own.name,
+    query: primary.fq,
   })
-  const add = (list: Article[]) => {
+
+  const add = (list: Article[], scopeTag: string, exactMatch: boolean) => {
     doneTasks++
     onProgress?.(Math.min(92, 20 + Math.round((doneTasks / totalTasks) * 72)))
     if (!list.length || signal?.aborted) return
-    list.forEach((a) => acc.set(a.url, a))
+    for (const a of list) {
+      if (!acc.has(a.url)) acc.set(a.url, { ...a, scopeTag, exactMatch })
+    }
     onPartial?.(snapshot())
   }
 
-  const flashback = async () => {
-    for (const order of ['pd', 'td', 'rd']) {
-      if (signal?.aborted) break
-      add(await flashbackPage(fq, order, signal))
+  const runForumScope = async (idx: number, isExact: boolean) => {
+    const t = target(place, idx)
+    const minKeyLen = /[\u0600-\u06ff\u3040-\u9fff\uac00-\ud7af]/.test(t.cleanName) ? 2 : 4
+    const fkey = norm(t.cleanName).split(' ').filter((w) => w.length >= minKeyLen).sort((x, y) => y.length - x.length)[0]
+    const named = (l: Article[]) => (fkey ? l.filter((x) => norm(`${x.title} ${x.summary ?? ''}`).includes(fkey)) : l)
+    const rq = t.fq.replace(/ı/g, 'i').replace(/İ/g, 'I')
+
+    const flashback = async () => {
+      for (const order of ['pd', 'td', 'rd']) {
+        if (signal?.aborted) break
+        add(await flashbackPage(t.fq, order, false, signal), t.cleanName, isExact)
+      }
+      // For streets & districts, also search inside post bodies (`sp=1`) so street-level sightings inside threads surface!
+      if (['street', 'district'].includes(t.own.level) && !signal?.aborted) {
+        add(await flashbackPage(t.cleanName, 'pd', true, signal).catch(() => []), t.cleanName, isExact)
+      }
     }
+
+    const redditFlow = async () => {
+      const rows = await reddit(rq, want, '', '', signal)
+      add(named(rows), t.cleanName, isExact)
+      for (const sub of subList.slice(0, 2)) {
+        if (acc.size >= Math.min(want, 50) || signal?.aborted) break
+        await abortableSleep(1000, signal)
+        add(named(await reddit(t.cleanName, want, sub, '', signal)), t.cleanName, isExact)
+      }
+    }
+
+    return Promise.allSettled([
+      redditFlow(),
+      lemmyDiscussions(t.fq, cc, signal).then((l) => add(named(l), t.cleanName, isExact)),
+      regionalDiscussions(t.fq, cc, API, isLocalProxyBlocked(), signal).then((l) => add(named(l), t.cleanName, isExact)),
+      hackerNews(rq, want, signal).then((l) => add(named(l), t.cleanName, isExact)),
+      stackExchange(rq, 'travel', want, signal).then((l) => add(named(l), t.cleanName, isExact)),
+      stackExchange(rq, 'expatriates', want, signal).then((l) => add(named(l), t.cleanName, isExact)),
+      ...(cc === 'SE' && !isLocalProxyBlocked() ? [flashback()] : []),
+    ])
   }
 
-  const redditFlow = async () => {
-    const rows = await reddit(rq, want, '', '', signal)
-    add(named(rows))
-    for (const sub of subList.slice(0, 2)) {
-      if (acc.size >= Math.min(want, 45) || signal?.aborted) break
-      await abortableSleep(1200, signal)
-      // Subreddit is already localized to country/city; search by place name directly
-      add(named(await reddit(own.name, want, sub, '', signal)))
-    }
-  }
-
-  const got = await Promise.allSettled([
-    redditFlow(),
-    lemmyDiscussions(fq, cc, signal).then((l) => add(named(l))),
-    regionalDiscussions(fq, cc, API, isLocalProxyBlocked(), signal).then((l) => add(named(l))),
-    hackerNews(rq, want, signal).then((l) => add(named(l))),
-    stackExchange(rq, 'travel', want, signal).then((l) => add(named(l))),
-    stackExchange(rq, 'expatriates', want, signal).then((l) => add(named(l))),
-    ...(cc === 'SE' && !isLocalProxyBlocked() ? [flashback()] : []),
-  ])
+  const got = await runForumScope(from, true)
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-  if (got.every((x) => x.status === 'rejected')) throw (got[0] as PromiseRejectedResult).reason
+
+  // If a specific street address or small district has few forum threads, cascade outward to the neighbourhood/city
+  if (acc.size < Math.min(want, 20) && from < place.parts.length - 1) {
+    for (let nextIdx = from + 1; nextIdx < place.parts.length; nextIdx++) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      if (place.parts[nextIdx].level === 'country' && acc.size >= 8) break
+      await runForumScope(nextIdx, false)
+      if (acc.size >= Math.min(want, 30)) break
+    }
+  }
+
+  if (acc.size === 0 && got.every((x) => x.status === 'rejected')) throw (got[0] as PromiseRejectedResult).reason
   onProgress?.(95)
   return snapshot()
+}
+
+/** Ranks forum threads by importance (exact address match + urgent topics + reply/upvote score + recency) for spotlighting on sparse addresses. */
+export function rankImportantForum(threads: Article[], limit = 8): Article[] {
+  const now = Date.now()
+  const scoreOf = (a: Article) => {
+    const exactBonus = a.exactMatch ? 120 : 0
+    const parsedReplies = Number(a.source.match(/\((\d+)\)/)?.[1] ?? 0)
+    const engagement = Math.min(100, a.score ?? (parsedReplies > 0 ? parsedReplies * 2 : 10))
+    const cats = topicsOf(`${a.orig ?? a.title} ${a.summary ?? ''}`)
+    const topicBonus = cats.some((c) => c === 'Crime' || c === 'Accident') ? 45 : cats.length > 0 ? 20 : 0
+    const ageDays = Math.max(0, (now - +a.date) / 864e5)
+    const recency = ageDays <= 1 ? 80 : ageDays <= 7 ? 50 : ageDays <= 30 ? 25 : 5
+    return exactBonus + topicBonus + engagement + recency
+  }
+  return [...threads].sort((a, b) => scoreOf(b) - scoreOf(a) || +b.date - +a.date).slice(0, limit)
 }
 
 // Persistent LRU translation cache (in-memory + localStorage up to 600 headlines)
@@ -931,20 +1184,50 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from(rawData, (c) => c.charCodeAt(0))
 }
 
+/** Shows a native notification safely on Android, iOS Home-Screen PWA, and Desktop browsers via the Service Worker. */
+export async function showAppNotification(title: string, body: string, url = './', tag = 'newzlocal'): Promise<void> {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready
+      await reg.showNotification(title, {
+        body,
+        icon: 'icons/icon-192.png',
+        badge: 'icons/icon-192.png',
+        tag,
+        renotify: true,
+        data: { url },
+      } as NotificationOptions)
+      return
+    }
+  } catch { /* fallback to window Notification on non-SW desktop */ }
+  try {
+    const n = new Notification(title, { body, tag })
+    n.onclick = () => {
+      window.focus()
+      if (url.startsWith('./#') || url.startsWith('#')) location.hash = url.replace(/^\.\//, '')
+    }
+  } catch { /* mobile browsers disallow new Notification() */ }
+}
+
 export async function syncPushSubscription(favs: Place[], lang: string, quietMap: Record<string, Quiet>): Promise<boolean> {
   if (!API || !('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return false
   try {
     let pubKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
     if (!pubKey) {
-      const kr = await fetch(`${API}/push/vapid`, { signal: AbortSignal.timeout(4000) })
+      const kr = await fetch(`${API}/push/vapid`, { signal: AbortSignal.timeout(5000) })
       if (!kr.ok) return false
       pubKey = ((await kr.json()) as { publicKey?: string }).publicKey
     }
     if (!pubKey) return false
     const reg = await navigator.serviceWorker.ready
-    const sub =
-      (await reg.pushManager.getSubscription()) ??
-      (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(pubKey) as BufferSource }))
+    let sub = await reg.pushManager.getSubscription()
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(pubKey) as BufferSource,
+      })
+    }
     if (!favs.length) {
       await fetch(`${API}/push/subscribe`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) })
       return true
@@ -956,13 +1239,60 @@ export async function syncPushSubscription(favs: Place[], lang: string, quietMap
         subscription: sub.toJSON(),
         lang,
         quiet: quietMap,
-        places: favs.slice(0, 10).map((f) => ({ label: label(f), cc: f.cc, parts: f.parts, cat: f.cat, alert: f.alert })),
+        places: favs.slice(0, 15).map((f) => ({
+          label: label(f),
+          hash: encodePlace(f, 0),
+          cc: f.cc,
+          parts: f.parts,
+          cat: f.cat,
+          alert: f.alert,
+          alertNews: f.alertNews !== false,
+          alertForum: f.alertForum !== false,
+        })),
       }),
     })
     return r.ok
   } catch {
     return false
   }
+}
+
+/** Triggers a real end-to-end encrypted Web Push test from the Cloudflare Worker (with local SW fallback). */
+export async function sendTestPush(title: string, body: string): Promise<'push' | 'local' | 'failed'> {
+  if (!('Notification' in window)) return 'failed'
+  if (Notification.permission !== 'granted') {
+    const p = await Notification.requestPermission()
+    if (p !== 'granted') return 'failed'
+  }
+  if (API && 'serviceWorker' in navigator && 'PushManager' in window) {
+    try {
+      const reg = await navigator.serviceWorker.ready
+      let sub = await reg.pushManager.getSubscription()
+      if (!sub) {
+        const kr = await fetch(`${API}/push/vapid`, { signal: AbortSignal.timeout(5000) })
+        if (kr.ok) {
+          const pubKey = ((await kr.json()) as { publicKey?: string }).publicKey
+          if (pubKey) {
+            sub = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(pubKey) as BufferSource,
+            })
+          }
+        }
+      }
+      if (sub) {
+        const r = await fetch(`${API}/push/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription: sub.toJSON(), title, body }),
+          signal: AbortSignal.timeout(8000),
+        })
+        if (r.ok) return 'push'
+      }
+    } catch { /* fall back to local SW notification */ }
+  }
+  await showAppNotification(title, body, './', 'newzlocal-test')
+  return 'local'
 }
 
 const FAV = 'newzlocal.favs'

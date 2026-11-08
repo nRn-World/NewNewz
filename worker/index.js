@@ -1,20 +1,23 @@
-// Cloudflare Worker: hardened CORS proxy (/gn, /bn, /rd, /fb, /meneame, /eksi, /meta, /gnews, /nd) + RFC 8291 / VAPID Web Push background alerts.
+// Cloudflare Worker: hardened CORS proxy (/gn, /bn, /rd, /fb, /meneame, /eksi, /meta, /gnews, /nd)
+// + zero-config RFC 8291 / VAPID Web Push background alerts for both News AND Forum posts on saved addresses/places.
 const ORIGINS = {
   '/gn': 'https://news.google.com',
   '/bn': 'https://www.bing.com',
   '/rd': 'https://www.reddit.com',
   '/fb': 'https://www.flashback.org',
 }
-// Keyed APIs: secrets stay inside the Worker; only allowed origins may spend quota.
 const KEYED = {
   '/gnews': ['https://gnews.io/api/v4', 'GNEWS_KEY', 'apikey'],
   '/nd': ['https://newsdata.io/api/1', 'NEWSDATA_KEY', 'apikey'],
 }
-const DEFAULT_ALLOWED = ['https://nrnworld.one', 'https://nrn-world.github.io', 'http://localhost:5173', 'http://localhost:4173']
+const DEFAULT_ALLOWED = ['https://nrnworld.one', 'https://www.nrnworld.one', 'https://nrn-world.github.io', 'http://localhost:5173', 'http://localhost:4173']
 
-function getAllowed(env) {
+function isAllowedOrigin(origin, env) {
+  if (!origin) return true
   const extra = (env?.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
-  return [...DEFAULT_ALLOWED, ...extra]
+  if ([...DEFAULT_ALLOWED, ...extra].includes(origin)) return true
+  if (/^https:\/\/[a-z0-9-]+\.e2b\.app$/i.test(origin)) return true
+  return false
 }
 
 const enc = new TextEncoder()
@@ -63,7 +66,7 @@ export async function encryptWebPush(payloadText, p256dhB64, authB64) {
   const nonce = await hkdf(salt, ikm, enc.encode('Content-Encoding: nonce\0'), 12)
 
   const aesKey = await crypto.subtle.importKey('raw', cek, { name: 'AES-GCM' }, false, ['encrypt'])
-  const paddedPlain = concat(enc.encode(payloadText), new Uint8Array([2])) // 0x02 final-record delimiter
+  const paddedPlain = concat(enc.encode(payloadText), new Uint8Array([2]))
   const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aesKey, paddedPlain))
 
   const rs = new Uint8Array(4)
@@ -72,7 +75,7 @@ export async function encryptWebPush(payloadText, p256dhB64, authB64) {
   return concat(header, ciphertext)
 }
 
-/** Signs a VAPID JWT (`ES256`) for the push service origin. `privateJwk` is a JSON JWK string stored as a Worker secret. */
+/** Signs a VAPID JWT (`ES256`) for the push service origin. */
 export async function signVapidJwt(endpoint, privateJwkStr, subject = 'mailto:contact@nrnworld.one') {
   const aud = new URL(endpoint).origin
   const exp = Math.floor(Date.now() / 1000) + 12 * 3600
@@ -83,6 +86,44 @@ export async function signVapidJwt(endpoint, privateJwkStr, subject = 'mailto:co
   const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
   const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, enc.encode(unsigned))
   return `${unsigned}.${b64u(sig)}`
+}
+
+/** Retrieves VAPID keys from env secrets or auto-generates and persists a P-256 keypair inside SUBS_KV on first use. */
+export async function getOrCreateVapid(env) {
+  if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_JWK) {
+    return { publicKey: env.VAPID_PUBLIC_KEY, privateJwk: env.VAPID_PRIVATE_JWK }
+  }
+  if (!env.SUBS_KV) return null
+  const rawStored = await env.SUBS_KV.get('sys:vapid')
+  if (rawStored) {
+    try {
+      const stored = typeof rawStored === 'string' ? JSON.parse(rawStored) : rawStored
+      if (stored?.publicKey && stored?.privateJwk) return stored
+    } catch { /* regenerate */ }
+  }
+
+  const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+  const rawPub = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey))
+  const privateJwk = await crypto.subtle.exportKey('jwk', kp.privateKey)
+  const generated = { publicKey: b64u(rawPub), privateJwk }
+  await env.SUBS_KV.put('sys:vapid', JSON.stringify(generated))
+  return generated
+}
+
+async function deliverPush(subscription, payloadObj, vapid, subject) {
+  const encrypted = await encryptWebPush(JSON.stringify(payloadObj), subscription.keys.p256dh, subscription.keys.auth)
+  const jwt = await signVapidJwt(subscription.endpoint, vapid.privateJwk, subject)
+  return fetch(subscription.endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `vapid t=${jwt}, k=${vapid.publicKey}`,
+      'Content-Encoding': 'aes128gcm',
+      'Content-Type': 'application/octet-stream',
+      TTL: '3600',
+      Urgency: 'high',
+    },
+    body: encrypted,
+  })
 }
 
 async function subKey(endpoint) {
@@ -99,37 +140,154 @@ function inQuietHours(q, now = new Date()) {
   return f <= e ? m >= f && m < e : m >= f || m < e
 }
 
-async function fetchLatestBingRss(place) {
-  const own = place.parts?.[0]?.name
-  if (!own) return []
-  const cc = (place.cc || 'US').toUpperCase()
-  const url = `https://www.bing.com/news/search?q=${encodeURIComponent(`"${own}"`)}&format=rss&cc=${cc}&sortbydate=1`
-  const r = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
-    signal: AbortSignal.timeout(8000),
-  })
-  if (!r.ok) return []
-  const xml = await r.text()
-  const items = []
-  for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
-    const block = m[1]
-    const title = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/)
-    const link = block.match(/<link>([\s\S]*?)<\/link>/)
-    const t = (title?.[1] ?? title?.[2] ?? '').trim()
-    const l = (link?.[1] ?? '').trim()
-    if (t && l) items.push({ title: t, url: l })
+function streetBase(raw) {
+  const s = String(raw || '')
+    .trim()
+    .replace(/\b(?:no|nr|lgh|apt|unit)[:.\s-]*\d+[a-z]?\b/gi, '')
+    .replace(/\s+\d+[a-z]?(?:[-/]\d+[a-z]?)?$/i, '')
+    .replace(/^\d+[a-z]?\s+/, '')
+    .trim()
+  return s.length >= 2 ? s : String(raw || '').trim()
+}
+
+function normStr(s) {
+  return String(s || '')
+    .replace(/İ/g, 'i')
+    .replace(/ı/g, 'i')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+function buildPlaceQueries(place) {
+  const parts = Array.isArray(place.parts) ? place.parts : []
+  if (!parts.length) return { newsQueries: [], forumQueries: [], mustKey: '' }
+  const own = parts[0]
+  const cleanOwn = own.level === 'street' ? streetBase(own.name) : own.name
+  const hasHouseNo = own.level === 'street' && normStr(own.name) !== normStr(cleanOwn)
+  const up = parts.slice(1)
+  const ctx = up.find((x) => x.level === 'city') ?? up[0]
+  const small = own.level === 'street' || own.level === 'district'
+  const newsQueries = small && ctx
+    ? [...(hasHouseNo ? [`"${own.name}" "${ctx.name}"`] : []), `"${cleanOwn}" "${ctx.name}"`]
+    : [`"${cleanOwn}"`]
+  const forumQueries = [
+    ...(hasHouseNo ? [small && ctx ? `${own.name} ${ctx.name}` : own.name] : []),
+    small && ctx ? `${cleanOwn} ${ctx.name}` : cleanOwn,
+  ]
+  // When monitoring a home street address, also monitor its immediate suburb/district if present
+  if (own.level === 'street' && up[0]?.level === 'district') {
+    const sub = up[0].name
+    const cityCtx = up.find((x) => x.level === 'city')
+    newsQueries.push(cityCtx ? `"${sub}" "${cityCtx.name}"` : `"${sub}"`)
+    forumQueries.push(cityCtx ? `${sub} ${cityCtx.name}` : sub)
   }
-  return items.slice(0, 10)
+  const mustKey = normStr(cleanOwn).split(' ').filter((w) => w.length >= 3).sort((a, b) => b.length - a.length)[0] || ''
+  return { newsQueries, forumQueries, mustKey }
+}
+
+async function checkNewsForPlace(place, queries) {
+  const cc = (place.cc || 'US').toUpperCase()
+  const out = []
+  for (const q of queries) {
+    try {
+      const r = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent(q)}&format=rss&cc=${cc}&sortbydate=1`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        signal: AbortSignal.timeout(6000),
+      })
+      if (r.ok) {
+        const xml = await r.text()
+        for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+          const block = m[1]
+          const title = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/)
+          const link = block.match(/<link>([\s\S]*?)<\/link>/)
+          const t = (title?.[1] ?? title?.[2] ?? '').trim()
+          const l = (link?.[1] ?? '').trim()
+          if (t && l) out.push({ title: t, url: l, kind: 'news' })
+        }
+      }
+    } catch { /* next */ }
+    if (out.length >= 6) break
+  }
+  return out.slice(0, 12)
+}
+
+async function checkForumsForPlace(place, forumQueries, mustKey) {
+  const cc = (place.cc || '').toUpperCase()
+  const out = []
+  const q = forumQueries[0]
+  if (!q) return out
+
+  // 1. Reddit newest threads
+  try {
+    const r = await fetch(`https://www.reddit.com/search.json?raw_json=1&sort=new&limit=10&q=${encodeURIComponent(q)}`, {
+      headers: { 'User-Agent': 'NewzLocalAlert/1.0' },
+      signal: AbortSignal.timeout(5500),
+    })
+    if (r.ok) {
+      const j = await r.json()
+      for (const c of j?.data?.children ?? []) {
+        const d = c?.data
+        if (d?.permalink && d?.title) {
+          if (!mustKey || normStr(`${d.title} ${d.selftext || ''}`).includes(mustKey)) {
+            out.push({ title: d.title, url: `https://www.reddit.com${d.permalink}`, kind: 'forum' })
+          }
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 2. Flashback active threads in Sweden (including "Idag HH:MM")
+  if (cc === 'SE') {
+    try {
+      const r = await fetch(`https://www.flashback.org/sok/?query=${encodeURIComponent(q)}&so=pd`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(5500),
+      })
+      if (r.ok) {
+        const html = new TextDecoder('iso-8859-1').decode(await r.arrayBuffer())
+        for (const m of html.matchAll(/<a[^>]+id=["']thread_title_(\d+)["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+          const href = m[2]
+          const title = m[3].replace(/<[^>]+>/g, '').trim()
+          if (title && href) {
+            out.push({ title, url: new URL(href, 'https://www.flashback.org').href, kind: 'forum' })
+          }
+          if (out.length >= 16) break
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // 3. Lemmy Fediverse
+  try {
+    const r = await fetch(`https://lemmy.world/api/v3/search?type_=Posts&sort=New&limit=8&q=${encodeURIComponent(q)}`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (r.ok) {
+      const j = await r.json()
+      for (const item of j?.posts ?? []) {
+        const p = item?.post
+        if (p?.ap_id && p?.name) {
+          if (!mustKey || normStr(`${p.name} ${p.body || ''}`).includes(mustKey)) {
+            out.push({ title: p.name, url: p.ap_id, kind: 'forum' })
+          }
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  return out.slice(0, 15)
 }
 
 export default {
   async fetch(req, env) {
     const url = new URL(req.url)
-    const allowed = getAllowed(env)
     const origin = req.headers.get('Origin') ?? ''
-    const originOk = !origin || allowed.includes(origin)
+    const originOk = isAllowedOrigin(origin, env)
     const cors = {
-      'Access-Control-Allow-Origin': allowed.includes(origin) ? origin : allowed[0],
+      'Access-Control-Allow-Origin': origin && originOk ? origin : DEFAULT_ALLOWED[0],
       Vary: 'Origin',
     }
 
@@ -144,8 +302,38 @@ export default {
 
     // --- Web Push endpoints ---
     if (url.pathname === '/push/vapid' && req.method === 'GET') {
-      if (!env.VAPID_PUBLIC_KEY || !env.SUBS_KV) return new Response(JSON.stringify({ enabled: false }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } })
-      return new Response(JSON.stringify({ publicKey: env.VAPID_PUBLIC_KEY }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+      const vapid = await getOrCreateVapid(env)
+      if (!vapid) return new Response(JSON.stringify({ enabled: false }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } })
+      return new Response(JSON.stringify({ publicKey: vapid.publicKey }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+
+    if (url.pathname === '/push/test' && req.method === 'POST') {
+      const vapid = await getOrCreateVapid(env)
+      if (!vapid) return new Response('Push not available', { status: 503, headers: cors })
+      try {
+        const body = await req.json()
+        const sub = body?.subscription
+        if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
+          return new Response('Invalid subscription', { status: 400, headers: cors })
+        }
+        const pushRes = await deliverPush(
+          sub,
+          {
+            title: String(body.title || 'NewzLocal'),
+            body: String(body.body || 'Push notifications are active!'),
+            tag: 'newzlocal-test',
+            url: './',
+          },
+          vapid,
+          env.VAPID_SUBJECT,
+        )
+        return new Response(JSON.stringify({ ok: pushRes.ok, status: pushRes.status }), {
+          status: pushRes.ok ? 200 : 502,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      } catch {
+        return new Response('Push error', { status: 500, headers: cors })
+      }
     }
 
     if (url.pathname === '/push/subscribe' && env.SUBS_KV) {
@@ -163,11 +351,11 @@ export default {
               subscription: { endpoint: ep, keys: { p256dh: keys.p256dh, auth: keys.auth } },
               lang: String(body.lang || 'en').slice(0, 5),
               quiet: body.quiet ?? {},
-              places: Array.isArray(body.places) ? body.places.slice(0, 10) : [],
+              places: Array.isArray(body.places) ? body.places.slice(0, 15) : [],
               seen: existing.seen ?? {},
               updatedAt: Date.now(),
             }),
-            { expirationTtl: 60 * 86400 },
+            { expirationTtl: 90 * 86400 },
           )
           return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, 'Content-Type': 'application/json' } })
         } catch {
@@ -188,7 +376,7 @@ export default {
     // --- Keyed news APIs ---
     const kp = Object.keys(KEYED).find((p) => url.pathname.startsWith(p + '/'))
     if (kp && req.method === 'GET') {
-      if (!allowed.includes(origin)) return new Response('Forbidden', { status: 403, headers: cors })
+      if (!origin || !originOk) return new Response('Forbidden', { status: 403, headers: cors })
       const [base, secret, param] = KEYED[kp]
       if (!env[secret]) return new Response('API key not configured', { status: 503, headers: cors })
       const target = new URL(base + url.pathname.slice(kp.length))
@@ -313,50 +501,69 @@ export default {
     }
   },
 
-  // Cron trigger: checks subscribed favourites and dispatches encrypted Web Push alerts even when tabs are closed.
+  // Every 5 minutes: checks saved addresses/districts/cities/countries for BOTH new News AND new Forum posts
+  // and dispatches encrypted Web Push notifications straight to subscribed phones & desktops.
   async scheduled(_event, env) {
-    if (!env.SUBS_KV || !env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_JWK) return
+    const vapid = await getOrCreateVapid(env)
+    if (!env.SUBS_KV || !vapid) return
     const list = await env.SUBS_KV.list({ prefix: 'sub:', limit: 200 })
     for (const item of list.keys) {
       const rec = await env.SUBS_KV.get(item.name, 'json')
       if (!rec?.subscription?.endpoint || !rec.places?.length) continue
       let dirty = false
+      let deadSub = false
+
       for (const p of rec.places) {
         if (p.cat && inQuietHours(rec.quiet?.[p.cat])) continue
-        const stories = await fetchLatestBingRss(p).catch(() => [])
-        if (!stories.length) continue
+        const { newsQueries, forumQueries, mustKey } = buildPlaceQueries(p)
+        const wantNews = p.alertNews !== false
+        const wantForum = p.alertForum !== false
+
+        const [newsHits, forumHits] = await Promise.all([
+          wantNews ? checkNewsForPlace(p, newsQueries) : Promise.resolve([]),
+          wantForum ? checkForumsForPlace(p, forumQueries, mustKey) : Promise.resolve([]),
+        ])
+
+        const combined = [...newsHits, ...forumHits]
+        if (!combined.length) continue
+
         const prev = rec.seen?.[p.label]
-        const fresh = prev ? stories.filter((s) => !prev.includes(s.url)) : []
-        rec.seen = { ...rec.seen, [p.label]: [...new Set([...stories.map((s) => s.url), ...(prev ?? [])])].slice(0, 150) }
+        const fresh = prev ? combined.filter((s) => !prev.includes(s.url)) : []
+        rec.seen = {
+          ...rec.seen,
+          [p.label]: [...new Set([...combined.map((s) => s.url), ...(prev ?? [])])].slice(0, 250),
+        }
         dirty = true
         if (!fresh.length) continue
+
+        const first = fresh[0]
+        const isForum = first.kind === 'forum'
+        const deepUrl = p.hash ? `./#p=${p.hash}${isForum ? '&tab=forum' : ''}` : './'
+        const titlePrefix = isForum ? `💬 ${p.label}` : `📰 ${p.label}`
         try {
-          const payload = JSON.stringify({
-            title: p.label,
-            body: fresh.length > 1 ? `${fresh[0].title} (+${fresh.length - 1})` : fresh[0].title,
-            tag: p.label,
-            url: './',
-          })
-          const encrypted = await encryptWebPush(payload, rec.subscription.keys.p256dh, rec.subscription.keys.auth)
-          const jwt = await signVapidJwt(rec.subscription.endpoint, env.VAPID_PRIVATE_JWK, env.VAPID_SUBJECT)
-          const pushRes = await fetch(rec.subscription.endpoint, {
-            method: 'POST',
-            headers: {
-              Authorization: `vapid t=${jwt}, k=${env.VAPID_PUBLIC_KEY}`,
-              'Content-Encoding': 'aes128gcm',
-              'Content-Type': 'application/octet-stream',
-              TTL: '3600',
+          const pushRes = await deliverPush(
+            rec.subscription,
+            {
+              title: titlePrefix,
+              body: fresh.length > 1 ? `${first.title} (+${fresh.length - 1})` : first.title,
+              tag: `${p.label}-${first.kind}`,
+              url: deepUrl,
             },
-            body: encrypted,
-          })
+            vapid,
+            env.VAPID_SUBJECT,
+          )
           if (pushRes.status === 404 || pushRes.status === 410) {
             await env.SUBS_KV.delete(item.name)
             dirty = false
+            deadSub = true
             break
           }
-        } catch { /* transient push failure */ }
+        } catch { /* transient push error */ }
       }
-      if (dirty) await env.SUBS_KV.put(item.name, JSON.stringify(rec), { expirationTtl: 60 * 86400 })
+
+      if (dirty && !deadSub) {
+        await env.SUBS_KV.put(item.name, JSON.stringify(rec), { expirationTtl: 90 * 86400 })
+      }
     }
   },
 }

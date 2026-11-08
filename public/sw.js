@@ -1,6 +1,5 @@
-// Service worker: offline app shell (network-first for HTML navigation, stale-while-revalidate for static assets & bundled fonts)
-// plus Web Push background notifications. News, maps and APIs always bypass the static cache.
-const CACHE = 'newzlocal-v2'
+// Service worker: offline app shell + Web Push background notifications for saved addresses, cities & countries.
+const CACHE = 'newzlocal-v3'
 const PRECACHE = ['./', 'manifest.webmanifest', 'favicon.svg', 'icons/icon-192.png']
 
 self.addEventListener('install', (e) => {
@@ -19,7 +18,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const u = new URL(e.request.url)
-  if (e.request.method !== 'GET' || u.origin !== location.origin || /\/(gn|bn|rd|fb|gnews|nd|push)\//.test(u.pathname)) return
+  if (e.request.method !== 'GET' || u.origin !== location.origin || /\/(gn|bn|rd|fb|gnews|nd|push|meta|eksi|meneame)\//.test(u.pathname)) return
 
   if (e.request.mode === 'navigate') {
     e.respondWith(
@@ -36,7 +35,6 @@ self.addEventListener('fetch', (e) => {
     return
   }
 
-  // Stale-while-revalidate: instant response from cache while keeping assets fresh across deploys
   e.respondWith(
     caches.open(CACHE).then((cache) =>
       cache.match(e.request).then((hit) => {
@@ -67,6 +65,7 @@ self.addEventListener('push', (e) => {
       badge: 'icons/icon-192.png',
       tag: data.tag,
       renotify: true,
+      vibrate: [180, 80, 180],
       data: { url: data.url || './' },
     }),
   )
@@ -74,12 +73,14 @@ self.addEventListener('push', (e) => {
 
 self.addEventListener('notificationclick', (e) => {
   e.notification.close()
-  const targetUrl = new URL(e.notification.data?.url || './', self.registration.scope).href
+  const rawUrl = e.notification.data?.url || './'
+  const targetUrl = new URL(rawUrl, self.registration.scope).href
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
         if (client.url.startsWith(self.registration.scope) && 'focus' in client) {
-          client.navigate?.(targetUrl)
+          client.postMessage({ type: 'OPEN_ALERT_PLACE', url: targetUrl })
+          client.navigate?.(targetUrl).catch(() => {})
           return client.focus()
         }
       }
