@@ -276,15 +276,21 @@ const markLocalProxyDown = () => {
 
 function cleanSnippet(rawHtml: string, title: string, source: string): string | undefined {
   if (!rawHtml) return undefined
-  const parsed = new DOMParser().parseFromString(rawHtml, 'text/html')
-  // Google News multi-perspective <ol><li><a>Headline</a> <font>Publisher</font></li></ol>
-  const liItems = [...parsed.querySelectorAll('li')]
-    .map((li) => (li.textContent ?? '').replace(/\s+/g, ' ').trim())
-    .filter((txt) => txt && norm(txt) !== norm(title) && norm(txt) !== norm(`${title} ${source}`))
-  if (liItems.length > 1) {
-    return liItems.slice(0, 3).map((s) => `• ${s}`).join(' ')
+  let plainText = rawHtml
+  if (typeof DOMParser !== 'undefined') {
+    const parsed = new DOMParser().parseFromString(rawHtml, 'text/html')
+    // Google News multi-perspective <ol><li><a>Headline</a> <font>Publisher</font></li></ol>
+    const liItems = [...parsed.querySelectorAll('li')]
+      .map((li) => (li.textContent ?? '').replace(/\s+/g, ' ').trim())
+      .filter((txt) => txt && norm(txt) !== norm(title) && norm(txt) !== norm(`${title} ${source}`))
+    if (liItems.length > 1) {
+      return liItems.slice(0, 3).map((s) => `• ${s}`).join(' ')
+    }
+    plainText = parsed.body?.textContent ?? rawHtml
+  } else {
+    plainText = decodeXmlEntities(rawHtml.replace(/<[^>]+>/g, ' '))
   }
-  const plain = (parsed.body?.textContent ?? rawHtml)
+  const plain = plainText
     .replace(/\u00a0/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -314,95 +320,210 @@ const interval = (when: string) => {
   return h <= 1 ? 4 : h <= 24 ? 7 : h <= 168 ? 8 : h <= 720 ? 9 : ''
 }
 
-function parseGoogleRssXml(xmlText: string, lang: string): Article[] {
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .trim()
+}
+
+function xmlTag(block: string, tagPattern: string): string {
+  const m = new RegExp(`<(${tagPattern})(?:\\s[^>]*)?>([\\s\\S]*?)<\\/\\1>`, 'i').exec(block)
+  return m ? decodeXmlEntities(m[2].trim()) : ''
+}
+
+export function parseGoogleRssXml(xmlText: string, lang: string): Article[] {
   if (!/<rss\b|<channel\b|<feed\b/i.test(xmlText)) throw new Error('err.source')
-  const doc = new DOMParser().parseFromString(xmlText, 'text/xml')
-  if (doc.querySelector('parsererror')) throw new Error('err.source')
   const seen = new Set<string>()
-  return [...doc.querySelectorAll('item')]
-    .map((i) => {
-      const source = i.querySelector('source')?.textContent ?? ''
-      const raw = i.querySelector('title')?.textContent ?? ''
-      const title = source && raw.endsWith(` - ${source}`) ? raw.slice(0, -source.length - 3) : raw
-      const desc = i.querySelector('description')?.textContent ?? ''
+  if (typeof DOMParser !== 'undefined') {
+    const doc = new DOMParser().parseFromString(xmlText, 'text/xml')
+    if (!doc.querySelector('parsererror')) {
+      return [...doc.querySelectorAll('item')]
+        .map((i) => {
+          const source = i.querySelector('source')?.textContent ?? ''
+          const raw = i.querySelector('title')?.textContent ?? ''
+          const title = source && raw.endsWith(` - ${source}`) ? raw.slice(0, -source.length - 3) : raw
+          const desc = i.querySelector('description')?.textContent ?? ''
+          return {
+            url: i.querySelector('link')?.textContent ?? '',
+            title,
+            summary: cleanSnippet(desc, title, source),
+            image: extractItemImage(i),
+            source,
+            date: new Date(i.querySelector('pubDate')?.textContent ?? ''),
+            lang,
+          }
+        })
+        .filter((a) => a.url && !seen.has(a.title) && seen.add(a.title))
+    }
+  }
+  const items: Article[] = []
+  for (const m of xmlText.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+    const b = m[1]
+    const source = xmlTag(b, 'source')
+    const raw = xmlTag(b, 'title')
+    const title = source && raw.endsWith(` - ${source}`) ? raw.slice(0, -source.length - 3) : raw
+    const desc = xmlTag(b, 'description')
+    const url = xmlTag(b, 'link')
+    if (!url || !title || seen.has(title)) continue
+    seen.add(title)
+    items.push({
+      url,
+      title,
+      summary: cleanSnippet(desc, title, source),
+      source,
+      date: new Date(xmlTag(b, 'pubDate')),
+      lang,
+    })
+  }
+  return items
+}
+
+export function parseBingRssXml(xmlText: string, lang: string): Article[] {
+  if (!/<rss\b|<channel\b|<feed\b/i.test(xmlText)) throw new Error('err.source')
+  const seen = new Set<string>()
+  if (typeof DOMParser !== 'undefined') {
+    const doc = new DOMParser().parseFromString(xmlText, 'text/xml')
+    if (!doc.querySelector('parsererror')) {
+      return [...doc.querySelectorAll('item')]
+        .map((i) => {
+          const link = i.querySelector('link')?.textContent ?? ''
+          let url = link
+          try { url = new URL(link).searchParams.get('url') ?? link } catch { /* keep Bing's redirect link */ }
+          const title = i.querySelector('title')?.textContent ?? ''
+          const source = i.getElementsByTagNameNS('*', 'Source')[0]?.textContent ?? ''
+          const desc = i.querySelector('description')?.textContent ?? ''
+          return {
+            url,
+            title,
+            summary: cleanSnippet(desc, title, source),
+            image: extractItemImage(i),
+            source,
+            date: new Date(i.querySelector('pubDate')?.textContent ?? ''),
+            lang,
+          }
+        })
+        .filter((a) => a.url && !seen.has(a.title) && seen.add(a.title))
+    }
+  }
+  const items: Article[] = []
+  for (const m of xmlText.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+    const b = m[1]
+    const link = xmlTag(b, 'link')
+    let url = link
+    try { url = new URL(link).searchParams.get('url') ?? link } catch { /* keep Bing's redirect link */ }
+    const title = xmlTag(b, 'title')
+    const source = xmlTag(b, '(?:[A-Za-z0-9_]+:)?Source')
+    const desc = xmlTag(b, 'description')
+    if (!url || !title || seen.has(title)) continue
+    seen.add(title)
+    items.push({
+      url,
+      title,
+      summary: cleanSnippet(desc, title, source),
+      source,
+      date: new Date(xmlTag(b, 'pubDate')),
+      lang,
+    })
+  }
+  return items
+}
+
+export function parseRss2JsonPayload(rawJson: string, lang: string): Article[] {
+  const j = JSON.parse(rawJson) as {
+    status?: string
+    items?: { title?: string; pubDate?: string; link?: string; description?: string; thumbnail?: string; author?: string }[]
+  }
+  if (j.status !== 'ok' || !Array.isArray(j.items)) throw new Error('err.source')
+  const seen = new Set<string>()
+  return j.items
+    .map((it) => {
+      const rawTitle = (it.title ?? '').trim()
+      const dashIdx = rawTitle.lastIndexOf(' - ')
+      const source = dashIdx > 8 ? rawTitle.slice(dashIdx + 3).trim() : (it.author ?? '').trim()
+      const title = dashIdx > 8 ? rawTitle.slice(0, dashIdx).trim() : rawTitle
+      const rawDate = (it.pubDate ?? '').trim()
+      const isoDate = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(rawDate) ? `${rawDate.replace(' ', 'T')}Z` : rawDate
       return {
-        url: i.querySelector('link')?.textContent ?? '',
+        url: (it.link ?? '').trim(),
         title,
-        summary: cleanSnippet(desc, title, source),
-        image: extractItemImage(i),
+        summary: cleanSnippet(it.description ?? '', title, source),
+        image: it.thumbnail && /^https:\/\//i.test(it.thumbnail) ? it.thumbnail : undefined,
         source,
-        date: new Date(i.querySelector('pubDate')?.textContent ?? ''),
+        date: new Date(isoDate),
         lang,
       }
     })
-    .filter((a) => a.url && !seen.has(a.title) && seen.add(a.title))
+    .filter((a) => a.url && a.title && !isNaN(+a.date) && !seen.has(a.title) && seen.add(a.title))
+}
+
+async function fetchRssViaCorsBridges(
+  canonicalRssUrl: string,
+  xmlParser: (xml: string, lang: string) => Article[],
+  lang: string,
+  signal?: AbortSignal,
+): Promise<Article[]> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  const raceCtrl = new AbortController()
+  const combinedSig = signal ? AbortSignal.any([signal, raceCtrl.signal]) : raceCtrl.signal
+
+  const tryXmlBridge = async (bridgeUrl: string): Promise<Article[]> => {
+    const r = await fetch(bridgeUrl, { signal: withTimeout(combinedSig, 6500) })
+    if (!r.ok) throw new Error('bridge_http')
+    return xmlParser(await r.text(), lang)
+  }
+
+  const tryRss2Json = async (): Promise<Article[]> => {
+    const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(canonicalRssUrl)}`, {
+      signal: withTimeout(combinedSig, 6500),
+    })
+    if (!r.ok) throw new Error('rss2json_http')
+    return parseRss2JsonPayload(await r.text(), lang)
+  }
+
+  try {
+    const winner = await Promise.any([
+      tryXmlBridge(`https://api.allorigins.win/raw?url=${encodeURIComponent(canonicalRssUrl)}`),
+      tryXmlBridge(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(canonicalRssUrl)}`),
+      tryXmlBridge(`https://corsproxy.io/?url=${encodeURIComponent(canonicalRssUrl)}`),
+      tryRss2Json(),
+    ])
+    raceCtrl.abort()
+    return winner
+  } catch {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    throw new Error('err.source')
+  }
 }
 
 async function bingHeadlines(query: string, country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
-  if (isLocalProxyBlocked()) throw new Error('err.source')
   const ed = editionFor(country)
   const iv = interval(when)
-  let r: Response
-  try {
-    r = await fetch(
-      `${API}/bn/news/search?q=${encodeURIComponent(query)}&format=rss&cc=${ed.cc}&setlang=${ed.hl}&sortbydate=1${iv ? `&qft=${encodeURIComponent(`interval="${iv}"`)}` : ''}`,
-      { cache: 'no-store', signal: withTimeout(signal, 4500) },
-    )
-  } catch (e) {
-    if (!signal?.aborted) markLocalProxyDown()
-    throw e
-  }
-  if (!r.ok) {
-    if (r.status === 404 || r.status >= 500) markLocalProxyDown()
-    throw new Error('err.source')
-  }
-  const doc = new DOMParser().parseFromString(await r.text(), 'text/xml')
-  const seen = new Set<string>()
-  return [...doc.querySelectorAll('item')]
-    .map((i) => {
-      const link = i.querySelector('link')?.textContent ?? ''
-      let url = link
-      try { url = new URL(link).searchParams.get('url') ?? link } catch { /* keep Bing's redirect link */ }
-      const title = i.querySelector('title')?.textContent ?? ''
-      const source = i.getElementsByTagNameNS('*', 'Source')[0]?.textContent ?? ''
-      const desc = i.querySelector('description')?.textContent ?? ''
-      return {
-        url,
-        title,
-        summary: cleanSnippet(desc, title, source),
-        image: extractItemImage(i),
-        source,
-        date: new Date(i.querySelector('pubDate')?.textContent ?? ''),
-        lang: ed.lang,
-      }
-    })
-    .filter((a) => a.url && !seen.has(a.title) && seen.add(a.title))
-}
+  const qs = `q=${encodeURIComponent(query)}&format=rss&cc=${ed.cc}&setlang=${ed.hl}&sortbydate=1${iv ? `&qft=${encodeURIComponent(`interval="${iv}"`)}` : ''}`
+  const canonicalBing = `https://www.bing.com/news/search?${qs}`
 
-// Google News RSS via VITE_GN_URL or /gn proxy, with automatic browser-direct CORS failover when /gn is unavailable.
-const GN_ENV = import.meta.env.VITE_GN_URL as string | undefined
-let gnProxyDown = API.includes('.workers.dev') && !GN_ENV
-
-async function googleHeadlinesBrowserCors(targetRssUrl: string, lang: string, signal?: AbortSignal): Promise<Article[]> {
-  const bridges = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(targetRssUrl)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetRssUrl)}`,
-  ]
-  let lastErr: unknown
-  for (const bridgeUrl of bridges) {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  if (!isLocalProxyBlocked()) {
     try {
-      const r = await fetch(bridgeUrl, { signal: withTimeout(signal, 6500) })
-      if (!r.ok) continue
-      const items = parseGoogleRssXml(await r.text(), lang)
-      return items
+      const r = await fetch(`${API}/bn/news/search?${qs}`, { cache: 'no-store', signal: withTimeout(signal, 4800) })
+      if (r.ok) return parseBingRssXml(await r.text(), ed.lang)
+      if (!API && (r.status === 404 || r.status >= 500)) markLocalProxyDown()
     } catch (e) {
       if (signal?.aborted) throw e
-      lastErr = e
+      if (!API) markLocalProxyDown()
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error('err.source')
+  return fetchRssViaCorsBridges(canonicalBing, parseBingRssXml, ed.lang, signal)
 }
+
+// Google News RSS via VITE_GN_URL, Worker /gn (with EU SOCS consent cookie), and concurrent browser CORS bridge racing.
+const GN_ENV = import.meta.env.VITE_GN_URL as string | undefined
+let gnProxyDown = false
 
 async function googleHeadlines(query: string, country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
   const ed = editionFor(country)
@@ -413,7 +534,7 @@ async function googleHeadlines(query: string, country: string, when: string, sig
   if (GN_ENV || (!gnProxyDown && !isLocalProxyBlocked())) {
     try {
       const base = GN_ENV ?? `${API}/gn/rss/search`
-      const r = await fetch(`${base}?${qs}`, { cache: 'no-store', signal: withTimeout(signal, GN_ENV || API ? 5000 : 2200) })
+      const r = await fetch(`${base}?${qs}`, { cache: 'no-store', signal: withTimeout(signal, GN_ENV || API ? 4200 : 2200) })
       if (r.ok) return parseGoogleRssXml(await r.text(), ed.lang)
       if (!GN_ENV) gnProxyDown = true
     } catch (e) {
@@ -422,7 +543,7 @@ async function googleHeadlines(query: string, country: string, when: string, sig
     }
   }
 
-  return googleHeadlinesBrowserCors(canonicalRss, ed.lang, signal)
+  return fetchRssViaCorsBridges(canonicalRss, parseGoogleRssXml, ed.lang, signal)
 }
 
 /** Parses GDELT DOC 2.0 `YYYYMMDDTHHmmssZ` timestamps into JS Dates. */
@@ -431,12 +552,18 @@ export function parseGdeltDate(s: string): Date {
   return new Date(iso)
 }
 
+let gdeltNext = 0
+const gdeltCache = new Map<string, { at: number; rows: Article[] }>()
+
 /**
  * GDELT DOC 2.0 Global News API — 100 % open, keyless, native browser CORS (`Access-Control-Allow-Origin: *`),
- * covering local press in 100+ languages worldwide without needing any proxy server.
+ * covering local press in 100+ languages worldwide. Politely paced & cached so GDELT's 5s rate-limit never 429s.
  */
 async function gdeltHeadlines(query: string, _country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
-  // Expand non-ASCII place phrases with their ASCII equivalent ("Diyarbakır" -> ("Diyarbakır" OR "Diyarbakir"))
+  const ck = `${query}|${when}`
+  const cached = gdeltCache.get(ck)
+  if (cached && Date.now() - cached.at < 300_000) return cached.rows
+
   const phrases = [...query.matchAll(/"([^"]+)"/g)].map((m) => m[1])
   const clauses = phrases.length
     ? phrases.map((p) => {
@@ -454,6 +581,10 @@ async function gdeltHeadlines(query: string, _country: string, when: string, sig
     timeParam = `&timespan=${when === '1y' ? '1y' : when}`
   }
 
+  const wait = gdeltNext - Date.now()
+  gdeltNext = Math.max(Date.now(), gdeltNext) + 3200
+  if (wait > 0) await abortableSleep(wait, signal)
+
   const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(gq)}&mode=ArtList&maxrecords=120&format=json&sort=DateDesc${timeParam}`
   const r = await fetch(url, { signal: withTimeout(signal, 8000) })
   if (!r.ok) throw new Error('err.source')
@@ -461,7 +592,7 @@ async function gdeltHeadlines(query: string, _country: string, when: string, sig
   if (!txt.trim().startsWith('{')) return []
   const j = JSON.parse(txt) as { articles?: { url: string; title: string; domain?: string; seendate?: string; socialimage?: string }[] }
   const seen = new Set<string>()
-  return (j.articles ?? [])
+  const rows = (j.articles ?? [])
     .map((a) => ({
       url: a.url,
       title: (a.title ?? '').trim(),
@@ -470,27 +601,19 @@ async function gdeltHeadlines(query: string, _country: string, when: string, sig
       date: parseGdeltDate(a.seendate ?? ''),
     }))
     .filter((a) => a.url && a.title && !isNaN(+a.date) && !seen.has(a.title) && seen.add(a.title))
+  gdeltCache.set(ck, { at: Date.now(), rows })
+  return rows
 }
 
 async function headlines(query: string, country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
-  if (isLocalProxyBlocked() && !GN_ENV) {
-    // When running without a backend proxy, race browser CORS RSS and GDELT in parallel for fast <2s response
-    const settled = await Promise.allSettled([
-      googleHeadlines(query, country, when, signal),
-      gdeltHeadlines(query, country, when, signal),
-    ])
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    const combined = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
-    if (combined.length || settled.some((s) => s.status === 'fulfilled')) return combined
-    throw new Error('err.source')
-  }
   const settled = await Promise.allSettled([
     bingHeadlines(query, country, when, signal),
     googleHeadlines(query, country, when, signal),
   ])
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  const anySucceeded = settled.some((s) => s.status === 'fulfilled')
   const combined = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
-  if (combined.length) return combined
+  if (combined.length || anySucceeded) return combined
   return gdeltHeadlines(query, country, when, signal)
 }
 
@@ -754,7 +877,8 @@ export function target(place: Place, from: number) {
         ...new Set([
           ...(hasHouseNo ? parents.map((c) => `"${own.name}" "${c.name}"`) : []),
           ...parents.map((c) => `"${cleanName}" "${c.name}"`),
-          ...(!mustMatchParent && cleanName.length >= 6 ? [`"${cleanName}"`] : []),
+          ...parents.map((c) => `"${cleanName}" ${c.name}`),
+          ...(!mustMatchParent && cleanName.length >= 4 ? [`"${cleanName}"`] : []),
         ]),
       ]
     : [
@@ -890,41 +1014,61 @@ export async function news(
     const mid = Date.now() - monthsBack * 30.4 * 864e5
     const w = `after:${day(new Date(mid - 15 * 864e5))} before:${day(new Date(mid + 15 * 864e5))}`
     for (const q of primary.queries) await win(q, w)
+  } else if (!deep) {
+    await win(primary.queries[0], '1d')
   } else {
-    for (let qi = 0; qi < primary.queries.length; qi++) {
-      const q = primary.queries[qi]
-      if (!deep) {
-        await win(q, '1d')
-        continue
-      }
-      const initialRaw = await win(q, '')
-      if (initialRaw < FULL || isLocalProxyBlocked() || currentMerged().length >= want) continue
-      for (let li = 0; li < LADDER.length; li++) {
-        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-        onProgress?.(Math.min(78, 35 + Math.round(((li + 1) / LADDER.length) * 43)))
-        const size = await win(q, LADDER[li])
-        if (currentMerged().length >= want && size < FULL) break
+    let maxInitialRaw = 0
+    for (let i = 0; i < primary.queries.length; i += 2) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      if (currentMerged().length >= want) break
+      const batch = primary.queries.slice(i, i + 2)
+      const sizes = await Promise.all(batch.map((q) => win(q, '')))
+      maxInitialRaw = Math.max(maxInitialRaw, ...sizes)
+    }
+
+    if (currentMerged().length < want) {
+      if (maxInitialRaw >= FULL) {
+        // High-volume place (e.g. major city/country): walk fine-grained recent windows
+        for (let li = 0; li < LADDER.length; li++) {
+          if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+          onProgress?.(Math.min(80, 35 + Math.round(((li + 1) / LADDER.length) * 45)))
+          const size = await win(primary.queries[0], LADDER[li])
+          if (currentMerged().length >= want && size < FULL) break
+        }
+      } else {
+        // District, suburb, street, or town (e.g. Husby, Kista, Ribegatan, Phuket):
+        // explicitly sweep 7-day, 30-day, and 1-year windows so stories from 3–7 days & recent weeks surface up to 100
+        const sweepQueries = [
+          ...new Set([
+            ...(!primary.mustMatchParent && primary.cleanName.length >= 4 ? [`"${primary.cleanName}"`] : []),
+            primary.queries.find((q) => !q.endsWith('"')) ?? primary.queries[0],
+          ]),
+        ]
+        const sweepWindows = ['7d', '30d', '1y']
+        for (let wi = 0; wi < sweepWindows.length; wi++) {
+          if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+          if (currentMerged().length >= want) break
+          onProgress?.(Math.min(82, 42 + (wi + 1) * 13))
+          await Promise.all(sweepQueries.map((sq) => win(sq, sweepWindows[wi])))
+        }
       }
     }
 
-    if (deep && currentMerged().length < want) {
-      const gQueries = [...new Set([primary.queries[0], ...(!primary.mustMatchParent && primary.cleanName.length >= 5 ? [`"${primary.cleanName}"`] : [])])]
-      for (const gq of gQueries) {
-        if (signal?.aborted || currentMerged().length >= want) break
-        await gdeltHeadlines(gq, cc, '', signal)
-          .then((g) => {
-            ok++
-            if (g.length) {
-              lists.push(tagItems(g))
-              emit()
-            }
-          })
-          .catch(() => {})
-      }
+    if (currentMerged().length < want) {
+      const gq = !primary.mustMatchParent && primary.cleanName.length >= 4 ? `"${primary.cleanName}"` : primary.queries[0]
+      await gdeltHeadlines(gq, cc, '', signal)
+        .then((g) => {
+          ok++
+          if (g.length) {
+            lists.push(tagItems(g))
+            emit()
+          }
+        })
+        .catch(() => {})
     }
 
-    if (deep && !isLocalProxyBlocked() && currentMerged().length < Math.min(want, 60)) {
-      const q = !primary.mustMatchParent && primary.cleanName.length >= 6 ? `"${primary.cleanName}"` : primary.queries[0]
+    if (!isLocalProxyBlocked() && currentMerged().length < Math.min(want, 70)) {
+      const q = !primary.mustMatchParent && primary.cleanName.length >= 4 ? `"${primary.cleanName}"` : primary.queries[0]
       const w = wordsFor(cc)
       const got = await Promise.allSettled(w.map((x) => bingHeadlines(`${q} ${x}`, cc, '', signal)))
       got.forEach((x) => {
@@ -1061,15 +1205,36 @@ const fbCache = new Map<string, { at: number; rows: Article[] }>()
 
 async function flashbackPage(query: string, order: string, searchPosts = false, page = 1, signal?: AbortSignal): Promise<Article[]> {
   if (isLocalProxyBlocked()) throw new Error('err.source')
-  const url = `${API}/fb/sok/?query=${encodeURIComponent(query)}&so=${order}${searchPosts ? '&sp=1' : ''}${page > 1 ? `&p=${page}` : ''}`
+  const fbPath = `/sok/?query=${encodeURIComponent(query)}&so=${order}${searchPosts ? '&sp=1' : ''}${page > 1 ? `&p=${page}` : ''}`
+  const url = `${API}/fb${fbPath}`
+  const canonicalFb = `https://www.flashback.org${fbPath}`
   const hit = fbCache.get(url)
   if (hit && Date.now() - hit.at < 300_000) return hit.rows
   const wait = fbNext - Date.now()
   fbNext = Math.max(Date.now(), fbNext) + 2200
   if (wait > 0) await abortableSleep(wait, signal)
-  const r = await fetch(url, { signal: withTimeout(signal, 6000) })
-  if (!r.ok) throw new Error('err.source')
-  const doc = new DOMParser().parseFromString(new TextDecoder('iso-8859-1').decode(await r.arrayBuffer()), 'text/html')
+  let buf: ArrayBuffer | null = null
+  try {
+    const r = await fetch(url, { signal: withTimeout(signal, 6000) })
+    if (r.ok) buf = await r.arrayBuffer()
+  } catch (e) {
+    if (signal?.aborted) throw e
+  }
+  if (!buf) {
+    buf = await Promise.any([
+      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(canonicalFb)}`, { signal: withTimeout(signal, 6500) }).then((r) =>
+        r.ok ? r.arrayBuffer() : Promise.reject(new Error('err.source')),
+      ),
+      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(canonicalFb)}`, { signal: withTimeout(signal, 6500) }).then((r) =>
+        r.ok ? r.arrayBuffer() : Promise.reject(new Error('err.source')),
+      ),
+    ]).catch(() => {
+      throw new Error('err.source')
+    })
+  }
+  const decoded = new TextDecoder('iso-8859-1').decode(buf)
+  const htmlText = /Ã¥|Ã¤|Ã¶|Ã…|Ã„|Ã–/.test(decoded) ? new TextDecoder('utf-8').decode(buf) : decoded
+  const doc = new DOMParser().parseFromString(htmlText, 'text/html')
 
   if (searchPosts) {
     // Post-search mode (`sp=1`) finds street/address/place mentions inside individual Flashback posts
