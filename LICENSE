@@ -1,54 +1,73 @@
-NewzLocal Non-Commercial Educational License (NNEL) v1.0
+NewzLocal Non-Commercial Educational License (NNEL) v1.1
 
 Copyright (c) 2026 nRnWorld (https://nrnworld.one)
-All rights reserved except as granted below.
+Contact: bynrnworld@gmail.com
+All rights reserved except as expressly granted below.
 
-1. GRANT
-   Permission is granted, free of charge, to any person obtaining a copy of this
-   software and associated files (the "Software") to use, copy, modify and share
-   the Software for PERSONAL, EDUCATIONAL, and RESEARCH purposes only, subject to
-   the conditions below.
+1. EDUCATIONAL GRANT ONLY
+   Permission is granted, free of charge, to students, educators, researchers,
+   and learners obtaining a copy of this software and associated documentation
+   files (the "Software") to view, study, and run the Software strictly for
+   NON-COMMERCIAL EDUCATIONAL, ACADEMIC, AND PERSONAL LEARNING PURPOSES, subject
+   to all conditions in Section 2.
 
-2. CONDITIONS
+2. RESTRICTIONS & CONDITIONS
 
-   a) Attribution. Every copy, fork, derivative work, or project that contains or
-      is based on any part of the Software must visibly credit
-      "NewzLocal by nRnWorld" (with a link to https://github.com/nRn-World/NewzLocal
-      or https://nrnworld.one). The credit must appear in the project's README or
-      license file and in the application's "About" section or footer if it has
-      a user interface. This license text must be included with all copies.
+   a) Mandatory Attribution.
+      Any permitted educational use, fork, or academic reference that includes or
+      builds upon any part of the Software must visibly credit:
+      "NewzLocal by nRnWorld" (linking to https://github.com/nRn-World/NewzLocal
+      or https://nrnworld.one) in its README/documentation and in the application
+      footer or "About" view if a user interface is present. This license file
+      must remain intact with all copies.
 
-   b) No commercial use. You may NOT sell, sublicense, rent, or otherwise make
-      money from the Software or anything derived from it. This includes, without
-      limitation: selling the Software or derivatives, offering it as a paid
-      product or subscription, including it in a paid product or service, showing
-      advertisements in it, collecting payment or donations in exchange for it, or
-      using it to provide paid services to clients.
+   b) Strict Prohibition on Monetization & Unauthorized Service Copying.
+      Without a prior written agreement from nRnWorld, NO company, organization,
+      or private individual may:
+        - Copy, clone, rebrand, or deploy the Software (or a substantially
+          similar derivative) as a public, commercial, or competing service;
+        - Sell, rent, lease, license, sublicense, or otherwise monetize the
+          Software or any derivative work;
+        - Generate direct or indirect revenue from the Software, including via
+          subscriptions, paid access, advertisements, sponsorships, affiliate
+          links, donations, consulting, or client deliverables; or
+        - Incorporate any part of the Software into a commercial or business
+          product, internal company tool, or revenue-generating platform.
 
-   c) Educational use is allowed. Teaching, coursework, tutorials, workshops, and
-      academic or personal study are permitted, provided condition (a) is met and
-      no fee is charged for the Software itself.
+   c) Prior Agreement Required for Companies & Commercial / Service Use.
+      Any company, organization, or private individual that wishes to use, copy,
+      deploy, integrate, or earn money from this project or service MUST contact
+      the copyright holder in advance and reach a formal written agreement before
+      any such use begins.
 
-   d) Commercial licensing. Anyone who wants to use the Software commercially must
-      first obtain a separate written license from nRnWorld.
+      Licensing & partnership inquiries must be sent to:
+      Email: bynrnworld@gmail.com
 
-3. THIRD-PARTY SERVICES AND DATA
-   The Software connects to third-party services and data sources (for example
-   news feeds, map tiles, geocoding, and forums). Those services have their own
-   terms, which may not allow commercial use. This license does not grant any
-   rights to them. You are responsible for following their terms.
+      Please include in your message:
+        1. Who you are (individual, startup, organization, or company);
+        2. Your goals, intended purpose, and how you plan to use or build upon
+           the project/service; and
+        3. What you can offer (compensation, licensing terms, or partnership
+           proposal) in order to use, adapt, or operate the service.
+
+3. THIRD-PARTY SERVICES AND DATA SOURCES
+   The Software connects to external third-party APIs, feeds, map tiles,
+   geocoders, and discussion platforms. Each third-party provider is governed by
+   its own terms of service. This license grants no rights to third-party content
+   or APIs, and you are solely responsible for complying with their terms.
 
 4. TERMINATION
-   Your rights under this license end automatically if you break any of its
-   conditions.
+   Any breach of the terms or restrictions of this license automatically and
+   immediately terminates all rights granted hereunder without notice.
 
-5. NO WARRANTY
+5. DISCLAIMER OF WARRANTY & LIMITATION OF LIABILITY
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+   OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
    SOFTWARE.
 
-Contact: https://nrnworld.one
+Copyright Holder: nRnWorld (https://nrnworld.one)
+Licensing Contact: bynrnworld@gmail.com
