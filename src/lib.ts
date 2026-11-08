@@ -2,7 +2,7 @@ import { norm } from './areas'
 import { clusterArticles, type RelatedItem } from './cluster'
 import { editionFor, wordsFor } from './editions'
 import { lemmyDiscussions, localSubreddits, regionalDiscussions } from './forums'
-import { topicsOf } from './topics'
+import { STOP, topicsOf } from './topics'
 import { encodePlace } from './urlState'
 
 const DEFAULT_WORKER_URL = 'https://newzlocal-proxy.bynrnworld.workers.dev'
@@ -47,6 +47,7 @@ export type Article = {
   scopeTag?: string
   exactMatch?: boolean
   score?: number
+  comments?: number
   also?: RelatedItem[]
 }
 
@@ -80,7 +81,12 @@ export function toPlace(f: Feat): Place {
     if (name && !parts.some((x) => norm(x.name) === norm(name))) parts.push({ level, name })
   }
 
-  // Metropolitan / provincial capitals (e.g. Diyarbakır, İstanbul, Stockholm, Madrid) often sit inside a central
+  if (p.type === 'country' || p.osm_value === 'country') {
+    add('country', p.name || p.country)
+    return { lat, lon, parts, cc: p.countrycode }
+  }
+
+  // Metropolitan / provincial capitals (e.g. Diyarbakır, İstanbul, Stockholm, Madrid, Phuket) often sit inside a central
   // sub-municipality (`p.city = "Sur"` while `p.name = "Diyarbakır"` and `p.state = "Diyarbakır"`). Never invert them.
   const isMetroCapital =
     p.type !== 'street' &&
@@ -95,7 +101,22 @@ export function toPlace(f: Feat): Place {
     return { lat, lon, parts, cc: p.countrycode }
   }
 
-  const isSettlement = p.type === 'city' || p.type === 'town' || p.type === 'village' || p.osm_value === 'city' || p.osm_value === 'town'
+  const isIslandOrRegion = p.osm_value === 'island' || p.osm_value === 'archipelago' || p.type === 'county'
+  const isSettlement =
+    p.type === 'city' || p.type === 'town' || p.type === 'village' || p.osm_value === 'city' || p.osm_value === 'town' || isIslandOrRegion
+  const isNamedVenue =
+    !!p.name &&
+    !/^\d+[a-z]?$/i.test(p.name.trim()) &&
+    !isSettlement &&
+    p.type !== 'street' &&
+    p.type !== 'district' &&
+    p.type !== 'locality' &&
+    p.type !== 'state'
+
+  if (isNamedVenue) {
+    add('street', p.name)
+  }
+
   const rawStreet = p.street || (p.type === 'street' ? p.name : undefined)
   const fullStreet = rawStreet && p.housenumber && !rawStreet.includes(p.housenumber) ? `${rawStreet} ${p.housenumber}` : rawStreet
   add('street', fullStreet)
@@ -127,15 +148,13 @@ async function photon(q: string, lang: string, signal?: AbortSignal): Promise<Pl
 type NomHit = { lat: string; lon: string; name: string; type?: string; class?: string; namedetails?: { name?: string }; address: Record<string, string> }
 
 let nomNext = 0
-/** Nominatim finds exact home addresses, streets, suburbs and villages. Polite 1 req/s spacing. */
+/** Nominatim finds exact home addresses, venues, islands, streets, suburbs, cities and countries. Polite 1 req/s spacing. */
 async function nominatim(q: string, signal?: AbortSignal): Promise<Place[]> {
   const wait = nomNext - Date.now()
   nomNext = Math.max(Date.now(), nomNext) + 1050
   if (wait > 0) await abortableSleep(wait, signal)
-  const looksLikeAddress = /\d/.test(q) || q.trim().split(/[\s,]+/).length >= 2
-  const featParam = looksLikeAddress ? '' : '&featureType=settlement'
   const r = await fetch(
-    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&namedetails=1&limit=6${featParam}&accept-language=zz`,
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&namedetails=1&limit=6&accept-language=zz`,
     { signal: withTimeout(signal, 8000) },
   )
   if (!r.ok) return []
@@ -146,16 +165,30 @@ async function nominatim(q: string, signal?: AbortSignal): Promise<Place[]> {
       const add = (lv: Level, nm?: string) => {
         if (nm && !parts.some((p) => norm(p.name) === norm(nm))) parts.push({ level: lv, name: nm })
       }
-      const road = a.road || a.pedestrian || a.residential || (x.class === 'highway' ? (x.namedetails?.name ?? x.name) : undefined)
+      const hitName = (x.namedetails?.name ?? x.name ?? '').trim()
+      const road = a.road || a.pedestrian || a.residential || (x.class === 'highway' ? hitName : undefined)
+      const suburb = a.suburb || a.neighbourhood || a.quarter || a.city_district || a.borough
+      const city = a.city || a.town || a.village || a.municipality || (x.type === 'island' ? hitName : undefined) || (!road && x.class === 'place' ? hitName : undefined)
+      if (
+        hitName &&
+        !/^\d+[a-z]?$/i.test(hitName) &&
+        x.class !== 'highway' &&
+        x.class !== 'boundary' &&
+        x.class !== 'place' &&
+        norm(hitName) !== norm(road ?? '') &&
+        norm(hitName) !== norm(suburb ?? '') &&
+        norm(hitName) !== norm(city ?? '')
+      ) {
+        add('street', hitName)
+      }
       if (road) {
         add('street', a.house_number ? `${road} ${a.house_number}` : road)
       }
-      const suburb = a.suburb || a.neighbourhood || a.quarter || a.city_district || a.borough
       if (suburb) add('district', suburb)
-      const city = a.city || a.town || a.village || a.municipality || (!road ? (x.namedetails?.name ?? x.name) : undefined)
       if (city) add('city', city)
       if (a.state) add('state', a.state)
       if (a.country) add('country', a.country)
+      if (!parts.length && hitName) add('city', hitName)
       return { lat: +x.lat, lon: +x.lon, cc: a.country_code, parts }
     })
     .filter((p) => p.parts.length > 0)
@@ -421,7 +454,7 @@ async function gdeltHeadlines(query: string, _country: string, when: string, sig
     timeParam = `&timespan=${when === '1y' ? '1y' : when}`
   }
 
-  const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(gq)}&mode=ArtList&maxrecords=75&format=json&sort=DateDesc${timeParam}`
+  const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(gq)}&mode=ArtList&maxrecords=120&format=json&sort=DateDesc${timeParam}`
   const r = await fetch(url, { signal: withTimeout(signal, 8000) })
   if (!r.ok) throw new Error('err.source')
   const txt = await r.text()
@@ -478,34 +511,103 @@ async function keyed(query: string, cc: string, signal?: AbortSignal): Promise<A
   return a
 }
 
-/** Reddit posts mentioning the place (via /rd proxy when available, with direct browser JSON CORS fallback). */
+/** Reddit posts mentioning the place (JSON endpoint first for 100-item pages, selftext & comment counts; Worker fallback). */
 const redditCache = new Map<string, { at: number; rows: Article[] }>()
 
-async function reddit(query: string, max: number, sub = '', after = '', signal?: AbortSignal): Promise<Article[]> {
-  const ck = `${sub}|${query}|${after}`
+async function reddit(
+  query: string,
+  max: number,
+  sub = '',
+  after = '',
+  sort: 'new' | 'comments' | 'top' = 'new',
+  signal?: AbortSignal,
+): Promise<Article[]> {
+  const ck = `${sub}|${sort}|${query}|${after}`
   const hit = redditCache.get(ck)
   if (hit && Date.now() - hit.at < 300_000) return hit.rows
-  const rows = await redditFetch(query, max, sub, after, signal)
+  const rows = await redditFetch(query, max, sub, after, sort, signal)
   redditCache.set(ck, { at: Date.now(), rows })
   return rows
 }
 
-async function redditFetch(query: string, max: number, sub: string, after: string, signal?: AbortSignal): Promise<Article[]> {
-  const qs = `q=${encodeURIComponent(query)}&sort=new&limit=${Math.min(max, 100)}${after ? `&after=${after}` : ''}`
+type RedditJsonListing = {
+  data?: {
+    children?: {
+      data: {
+        permalink: string
+        title: string
+        selftext?: string
+        thumbnail?: string
+        subreddit_name_prefixed?: string
+        created_utc: number
+        num_comments?: number
+        ups?: number
+      }
+    }[]
+  }
+}
+
+function parseRedditJson(j: RedditJsonListing): Article[] {
+  return (j.data?.children ?? [])
+    .map(({ data: d }) => {
+      const comments = d.num_comments ?? 0
+      const ups = Math.max(0, d.ups ?? 0)
+      const baseSrc = `reddit ${d.subreddit_name_prefixed ?? ''}`.trim()
+      return {
+        url: `https://www.reddit.com${d.permalink}`,
+        title: d.title,
+        summary: d.selftext ? d.selftext.replace(/\s+/g, ' ').trim().slice(0, 320) || undefined : undefined,
+        image: d.thumbnail && /^https:\/\//i.test(d.thumbnail) ? d.thumbnail : undefined,
+        source: comments > 0 ? `${baseSrc} (${comments})` : baseSrc,
+        date: clampDate(new Date(d.created_utc * 1000)),
+        comments,
+        score: comments * 3 + ups,
+        forum: true,
+      }
+    })
+    .filter((a) => a.url.includes('/comments/') && a.title)
+}
+
+async function redditFetch(
+  query: string,
+  max: number,
+  sub: string,
+  after: string,
+  sort: 'new' | 'comments' | 'top',
+  signal?: AbortSignal,
+): Promise<Article[]> {
+  const qs = `q=${encodeURIComponent(query)}&sort=${sort}&limit=${Math.min(max, 100)}${after ? `&after=${after}` : ''}`
+  const jsonPath = sub ? `/r/${sub}/search.json?restrict_sr=1&raw_json=1&${qs}` : `/search.json?raw_json=1&${qs}`
+
+  // 1. Direct browser CORS JSON (returns up to 100 posts + selftext + num_comments + ups)
+  try {
+    const r = await fetch(`https://www.reddit.com${jsonPath}`, { signal: withTimeout(signal, 6000) })
+    if (r.ok) return parseRedditJson((await r.json()) as RedditJsonListing)
+  } catch (e) {
+    if (signal?.aborted) throw e
+  }
+
+  // 2. Worker /rd JSON + RSS fallback
   if (!isLocalProxyBlocked()) {
     try {
-      const base = sub ? `${API}/rd/r/${sub}/search.rss?restrict_sr=1&` : `${API}/rd/search.rss?`
-      const r = await fetch(`${base}${qs}`, { cache: 'no-store', signal: withTimeout(signal, 4500) })
+      const rj = await fetch(`${API}/rd${jsonPath}`, { cache: 'no-store', signal: withTimeout(signal, 5000) })
+      if (rj.ok) return parseRedditJson((await rj.json()) as RedditJsonListing)
+      const rssPath = sub ? `${API}/rd/r/${sub}/search.rss?restrict_sr=1&${qs}` : `${API}/rd/search.rss?${qs}`
+      const r = await fetch(rssPath, { cache: 'no-store', signal: withTimeout(signal, 4500) })
       if (r.ok) {
         const doc = new DOMParser().parseFromString(await r.text(), 'text/xml')
         return [...doc.querySelectorAll('entry')]
-          .map((e) => ({
-            url: e.querySelector('link')?.getAttribute('href') ?? '',
-            title: e.querySelector('title')?.textContent ?? '',
-            source: `reddit ${e.querySelector('category')?.getAttribute('label') ?? ''}`.trim(),
-            date: new Date(e.querySelector('updated')?.textContent ?? ''),
-            forum: true,
-          }))
+          .map((e) => {
+            const rawBody = e.querySelector('content')?.textContent ?? ''
+            return {
+              url: e.querySelector('link')?.getAttribute('href') ?? '',
+              title: e.querySelector('title')?.textContent ?? '',
+              summary: rawBody ? rawBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) || undefined : undefined,
+              source: `reddit ${e.querySelector('category')?.getAttribute('label') ?? ''}`.trim(),
+              date: clampDate(new Date(e.querySelector('updated')?.textContent ?? '')),
+              forum: true,
+            }
+          })
           .filter((a) => a.url.includes('/comments/') && a.title)
       }
       if (r.status >= 500) markLocalProxyDown()
@@ -514,74 +616,190 @@ async function redditFetch(query: string, max: number, sub: string, after: strin
       markLocalProxyDown()
     }
   }
-
-  // Direct browser CORS fallback using Reddit's JSON endpoint
-  const jsonUrl = sub
-    ? `https://www.reddit.com/r/${sub}/search.json?restrict_sr=1&raw_json=1&${qs}`
-    : `https://www.reddit.com/search.json?raw_json=1&${qs}`
-  const r = await fetch(jsonUrl, { signal: withTimeout(signal, 6500) })
-  if (!r.ok) throw new Error('err.source')
-  const j = (await r.json()) as {
-    data?: {
-      children?: {
-        data: {
-          permalink: string
-          title: string
-          selftext?: string
-          thumbnail?: string
-          subreddit_name_prefixed?: string
-          created_utc: number
-          num_comments?: number
-          ups?: number
-        }
-      }[]
-    }
-  }
-  return (j.data?.children ?? [])
-    .map(({ data: d }) => ({
-      url: `https://www.reddit.com${d.permalink}`,
-      title: d.title,
-      summary: d.selftext ? d.selftext.replace(/\s+/g, ' ').trim().slice(0, 280) || undefined : undefined,
-      image: d.thumbnail && /^https:\/\//i.test(d.thumbnail) ? d.thumbnail : undefined,
-      source: `reddit ${d.subreddit_name_prefixed ?? ''}`.trim(),
-      date: clampDate(new Date(d.created_utc * 1000)),
-      score: (d.num_comments ?? 0) * 2 + (d.ups ?? 0),
-      forum: true,
-    }))
-    .filter((a) => a.url.includes('/comments/') && a.title)
+  throw new Error('err.source')
 }
 
-/** What to search for: the chosen place plus its parent for context, and a word every real hit must contain. */
+const EXONYM_GROUPS: string[][] = [
+  ['goteborg', 'gothenburg'],
+  ['kopenhamn', 'copenhagen'],
+  ['helsingfors', 'helsinki'],
+  ['wien', 'vienna'],
+  ['munchen', 'munich'],
+  ['koln', 'cologne'],
+  ['rom', 'roma', 'rome'],
+  ['milano', 'milan'],
+  ['venedig', 'venezia', 'venice'],
+  ['florens', 'firenze', 'florence'],
+  ['neapel', 'napoli', 'naples'],
+  ['aten', 'athens'],
+  ['lissabon', 'lisboa', 'lisbon'],
+  ['bryssel', 'brussels', 'bruxelles'],
+  ['geneve', 'geneva'],
+  ['prag', 'prague', 'praha'],
+  ['warszawa', 'warsaw'],
+  ['moskva', 'moscow'],
+  ['kiev', 'kyiv'],
+  ['kairo', 'cairo'],
+  ['peking', 'beijing'],
+  ['sverige', 'sweden'],
+  ['norge', 'norway'],
+  ['danmark', 'denmark'],
+  ['suomi', 'finland'],
+  ['tyskland', 'deutschland', 'germany'],
+  ['frankrike', 'france'],
+  ['spanien', 'espana', 'spain'],
+  ['italien', 'italia', 'italy'],
+  ['grekland', 'greece'],
+  ['turkiet', 'turkiye', 'turkey'],
+  ['storbritannien', 'united kingdom', 'britain'],
+]
+
+const GENERIC_STREETS = new Set([
+  'storgatan', 'kyrkogatan', 'skolgatan', 'stationsgatan', 'parkgatan', 'nygatan', 'industrigatan', 'fabriksgatan',
+  'hamngatan', 'tradgardsgatan', 'vastergatan', 'ostergatan', 'sodergatan', 'norrgatan', 'järnvägsgatan', 'jarnvagsgatan',
+  'main street', 'high street', 'church street', 'station road', 'park street', 'market street',
+  'hauptstrasse', 'bahnhofstrasse', 'schulstrasse', 'kirchstrasse', 'gartenstrasse',
+  'grande rue', 'rue de la gare', 'calle mayor', 'cumhuriyet caddesi', 'ataturk caddesi',
+])
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Builds clean place-name aliases (including compound sub-parts and country/city exonyms) for strict matching. */
+export function placeAliases(own: Part, cc?: string): string[] {
+  const clean = own.level === 'street' ? streetBaseName(own.name) : own.name
+  const set = new Set<string>([clean])
+  if (norm(own.name) !== norm(clean)) set.add(own.name)
+
+  // Compound administrative names like "Kista – Ärvinge" or "Spånga / Tensta"
+  for (const seg of clean.split(/\s*[–—/,]\s*/)) {
+    if (seg.trim().length >= 4) set.add(seg.trim())
+  }
+
+  const cNorm = norm(clean)
+  for (const grp of EXONYM_GROUPS) {
+    if (grp.includes(cNorm)) {
+      for (const alt of grp) set.add(alt)
+    }
+  }
+
+  if (own.level === 'country' && cc && /^[A-Za-z]{2}$/.test(cc)) {
+    const upper = cc.toUpperCase()
+    for (const loc of ['en', 'sv', 'de', 'fr', 'es', 'tr']) {
+      try {
+        const dn = new Intl.DisplayNames([loc], { type: 'region' }).of(upper)
+        if (dn && dn.length >= 2) set.add(dn)
+      } catch { /* ignore unsupported locale */ }
+    }
+  }
+  return [...set]
+}
+
+/**
+ * Verifies that `text` genuinely mentions the selected place (street, venue, neighbourhood, city, or country)
+ * using Unicode word-boundary + inflectional suffix matching so unrelated parent-city posts never leak in.
+ */
+export function mentionsPlace(text: string, aliases: string[]): boolean {
+  if (!text || !aliases.length) return false
+  const hNorm = norm(text)
+  if (!hNorm) return false
+  const padded = ` ${hNorm} `
+  const rawLower = ` ${text.toLowerCase()} `
+
+  for (const rawAlias of aliases) {
+    const aNorm = norm(rawAlias)
+    if (!aNorm) continue
+    // Compact scripts (Arabic, Thai, CJK, Korean)
+    if (/[\u0600-\u06ff\u0e00-\u0e7f\u3040-\u9fff\uac00-\ud7af]/.test(aNorm)) {
+      if (hNorm.includes(aNorm)) return true
+      continue
+    }
+    // Multi-word place names ("new york", "koh samui", "gamla stan", "kista galleria")
+    if (aNorm.includes(' ')) {
+      if (new RegExp(` ${escapeRe(aNorm)}\\p{L}{0,4}(?= )`, 'u').test(padded)) return true
+      continue
+    }
+    // Short 2-3 char names ("Åre", "Hjo", "Kos", "Goa", "UK"): require exact word & preserve accents so "Åre" != "are"
+    if (aNorm.length <= 3) {
+      const rawClean = rawAlias.trim().toLowerCase()
+      if (rawClean !== aNorm) {
+        if (new RegExp(`[^\\p{L}\\p{N}]${escapeRe(rawClean)}s?(?![\\p{L}\\p{N}])`, 'u').test(rawLower)) return true
+      } else if (padded.includes(` ${aNorm} `) || padded.includes(` ${aNorm}s `)) {
+        return true
+      }
+      continue
+    }
+    // 4-char names ("lund", "umea", "oslo"): allow max 2 inflection chars (-s, -en) so "lund" never matches "lundqvist"
+    const maxSuffix = aNorm.length === 4 ? 2 : 5
+    if (new RegExp(` ${escapeRe(aNorm)}\\p{L}{0,${maxSuffix}}(?= )`, 'u').test(padded)) return true
+  }
+  return false
+}
+
+/** What to search for: the exact chosen place, disambiguation context when needed, and strict place aliases. */
 export function target(place: Place, from: number) {
   const [own, ...up] = place.parts.slice(from)
   const cleanName = own.level === 'street' ? streetBaseName(own.name) : own.name
   const hasHouseNo = own.level === 'street' && norm(own.name) !== norm(cleanName)
   const ctx = up.find((x) => x.level === 'city') ?? up[0]
   const small = ['street', 'district'].includes(own.level)
+  const mustMatchParent = own.level === 'street' && GENERIC_STREETS.has(norm(cleanName)) && up.length > 0
+  const aliases = placeAliases(own, place.cc)
+  const parentAliases = up.flatMap((p) => placeAliases(p, place.cc))
   const parents = [up[0], ctx].filter(Boolean) as Part[]
+
   const queries = small
     ? [
         ...new Set([
           ...(hasHouseNo ? parents.map((c) => `"${own.name}" "${c.name}"`) : []),
           ...parents.map((c) => `"${cleanName}" "${c.name}"`),
+          ...(!mustMatchParent && cleanName.length >= 6 ? [`"${cleanName}"`] : []),
         ]),
       ]
-    : [`"${cleanName}"`]
+    : [
+        ...new Set([
+          `"${cleanName}"`,
+          ...aliases.filter((a) => norm(a) !== norm(cleanName) && /^[A-Za-z\s-]+$/.test(a)).slice(0, 1).map((a) => `"${a}"`),
+        ]),
+      ]
   const query = queries[0] ?? `"${cleanName}"`
-  const minKeyLen = /[\u0600-\u06ff\u3040-\u9fff\uac00-\ud7af]/.test(cleanName) ? 2 : 4
-  const key = small ? norm(cleanName).split(' ').filter((w) => w.length >= minKeyLen).sort((x, y) => y.length - x.length)[0] : undefined
+  const minKeyLen = /[\u0600-\u06ff\u0e00-\u0e7f\u3040-\u9fff\uac00-\ud7af]/.test(cleanName) ? 2 : 3
+  const key = norm(cleanName).split(' ').filter((w) => w.length >= minKeyLen).sort((x, y) => y.length - x.length)[0]
   const fq = [cleanName, small && ctx ? ctx.name : undefined].filter(Boolean).join(' ')
-  return { own, cleanName, query, queries, key, fq }
+  return { own, cleanName, query, queries, key, aliases, parentAliases, mustMatchParent, fq }
 }
 
-export function mergeAll(lists: Article[][], key: string | undefined, want: number, scope = '') {
+function matchesTarget(a: Article, t: ReturnType<typeof target>): boolean {
+  const hay = `${a.title} ${a.orig ?? ''} ${a.summary ?? ''}`
+  if (!mentionsPlace(hay, t.aliases)) return false
+  if (t.mustMatchParent && t.parentAliases.length > 0) {
+    return mentionsPlace(hay, t.parentAliases)
+  }
+  return true
+}
+
+export function mergeAll(
+  lists: Article[][],
+  keyOrAliases: string | string[] | undefined,
+  want: number,
+  scope = '',
+  parentAliases?: string[],
+) {
   const nowMs = Date.now()
+  const aliasList = Array.isArray(keyOrAliases) ? keyOrAliases : keyOrAliases ? [keyOrAliases] : []
   const unique = lists
     .flat()
     .filter((a) => !isNaN(+a.date))
     .map((a) => (+a.date > nowMs + 60_000 ? { ...a, date: clampDate(a.date, nowMs) } : a))
     .filter((a, i, all) => all.findIndex((b) => b.url === a.url || norm(b.title) === norm(a.title)) === i)
-    .filter((a) => !key || a.exactMatch === false || norm(`${a.title} ${a.summary ?? ''}`).includes(key))
+    .filter((a) => {
+      if (!aliasList.length) return true
+      const hay = `${a.title} ${a.orig ?? ''} ${a.summary ?? ''}`
+      if (!mentionsPlace(hay, aliasList)) return false
+      if (parentAliases?.length && !mentionsPlace(hay, parentAliases)) return false
+      return true
+    })
     .sort((a, b) => +b.date - +a.date)
   return clusterArticles(unique, scope)
     .sort((a, b) => +b.date - +a.date)
@@ -603,11 +821,11 @@ const day = (d: Date) => d.toISOString().slice(0, 10)
 
 const newsCache = new Map<string, { at: number; r: { articles: Article[]; scope: string; query: string; exactCount: number } }>()
 
+const NON_LATIN_LANGS = new Set(['th', 'ja', 'ko', 'zh', 'ar', 'he', 'el', 'ru', 'uk', 'bn', 'fa'])
+
 /**
- * Fetches up to `want` (default 100) local news articles sorted strictly newest-first (`+b.date - +a.date`).
- * For specific street addresses or small districts that have fewer than `want` direct press mentions,
- * automatically cascades outward through the immediate neighbourhood / municipality so the user always sees
- * the latest 100 local stories in strict date order (with `scopeTag` + `exactMatch` preserved on each story).
+ * Fetches up to `want` (default 100) news articles strictly about the chosen place (`place.parts[from]`),
+ * sorted newest-first (`+b.date - +a.date`). Never dilutes with unrelated parent-city headlines.
  */
 export async function news(
   place: Place,
@@ -632,52 +850,49 @@ export async function news(
   let ok = 0
   const lists: Article[][] = []
 
-  const currentMerged = () => mergeAll(lists, primary.key, want, primary.cleanName)
-  const countExact = (arr: Article[]) => arr.filter((a) => a.exactMatch !== false).length
+  const reqParent = primary.mustMatchParent ? primary.parentAliases : undefined
+  const currentMerged = () => mergeAll(lists, primary.aliases, want, primary.cleanName, reqParent)
   const emit = () => {
     const merged = currentMerged()
-    onPartial?.({ articles: merged, scope: primary.own.name, query: primary.queries[0], exactCount: countExact(merged) })
+    onPartial?.({ articles: merged, scope: primary.own.name, query: primary.queries[0], exactCount: merged.length })
   }
 
-  const runScope = async (idx: number, isPrimary: boolean) => {
-    const t = target(place, idx)
-    const small = ['street', 'district'].includes(t.own.level)
-    const editions = [...new Set(deep && !small && cc !== 'US' && !isLocalProxyBlocked() ? [cc, 'US'] : [cc])]
+  const small = ['street', 'district'].includes(primary.own.level)
+  const needsEnglishBridge = NON_LATIN_LANGS.has(editionFor(cc).lang) && /[A-Za-z]/.test(primary.cleanName)
+  const editions = [
+    ...new Set(
+      deep && cc !== 'US' && (!small || needsEnglishBridge)
+        ? [cc, 'US']
+        : [cc],
+    ),
+  ]
 
-    const tagItems = (items: Article[]): Article[] => {
-      if (isPrimary) {
-        return items
-          .filter((a) => !t.key || norm(`${a.title} ${a.summary ?? ''}`).includes(t.key))
-          .map((a) => ({ ...a, scopeTag: t.cleanName, exactMatch: true }))
+  const tagItems = (items: Article[]): Article[] =>
+    items.filter((a) => matchesTarget(a, primary)).map((a) => ({ ...a, scopeTag: primary.cleanName, exactMatch: true }))
+
+  const win = async (q: string, w: string) => {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    const got = await Promise.allSettled(editions.map((e) => headlines(q, e, w, signal)))
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    got.forEach((x) => {
+      if (x.status === 'fulfilled') {
+        ok++
+        lists.push(tagItems(x.value))
       }
-      return items
-        .filter((a) => !t.key || norm(`${a.title} ${a.summary ?? ''}`).includes(t.key))
-        .map((a) => ({ ...a, scopeTag: t.cleanName, exactMatch: false }))
-    }
+    })
+    emit()
+    return Math.max(0, ...got.map((x) => (x.status === 'fulfilled' ? x.value.length : 0)))
+  }
 
-    const win = async (q: string, w: string) => {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      const got = await Promise.allSettled(editions.map((e) => headlines(q, e, w, signal)))
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      got.forEach((x) => {
-        if (x.status === 'fulfilled') {
-          ok++
-          lists.push(tagItems(x.value))
-        }
-      })
-      emit()
-      return Math.max(0, ...got.map((x) => (x.status === 'fulfilled' ? x.value.length : 0)))
-    }
+  onProgress?.(28)
 
-    if (monthsBack > 0) {
-      const mid = Date.now() - monthsBack * 30.4 * 864e5
-      const w = `after:${day(new Date(mid - 15 * 864e5))} before:${day(new Date(mid + 15 * 864e5))}`
-      for (const q of t.queries) await win(q, w)
-      return
-    }
-
-    for (let qi = 0; qi < t.queries.length; qi++) {
-      const q = t.queries[qi]
+  if (monthsBack > 0) {
+    const mid = Date.now() - monthsBack * 30.4 * 864e5
+    const w = `after:${day(new Date(mid - 15 * 864e5))} before:${day(new Date(mid + 15 * 864e5))}`
+    for (const q of primary.queries) await win(q, w)
+  } else {
+    for (let qi = 0; qi < primary.queries.length; qi++) {
+      const q = primary.queries[qi]
       if (!deep) {
         await win(q, '1d')
         continue
@@ -686,27 +901,30 @@ export async function news(
       if (initialRaw < FULL || isLocalProxyBlocked() || currentMerged().length >= want) continue
       for (let li = 0; li < LADDER.length; li++) {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-        if (isPrimary) onProgress?.(Math.min(78, 35 + Math.round(((li + 1) / LADDER.length) * 43)))
+        onProgress?.(Math.min(78, 35 + Math.round(((li + 1) / LADDER.length) * 43)))
         const size = await win(q, LADDER[li])
         if (currentMerged().length >= want && size < FULL) break
       }
     }
 
     if (deep && currentMerged().length < want) {
-      const fallbackQ = small && t.cleanName.length >= 5 ? `"${t.cleanName}"` : t.queries[0]
-      await gdeltHeadlines(fallbackQ, cc, '', signal)
-        .then((g) => {
-          if (g.length) {
+      const gQueries = [...new Set([primary.queries[0], ...(!primary.mustMatchParent && primary.cleanName.length >= 5 ? [`"${primary.cleanName}"`] : [])])]
+      for (const gq of gQueries) {
+        if (signal?.aborted || currentMerged().length >= want) break
+        await gdeltHeadlines(gq, cc, '', signal)
+          .then((g) => {
             ok++
-            lists.push(tagItems(g))
-            emit()
-          }
-        })
-        .catch(() => {})
+            if (g.length) {
+              lists.push(tagItems(g))
+              emit()
+            }
+          })
+          .catch(() => {})
+      }
     }
 
-    if (deep && !isLocalProxyBlocked() && currentMerged().length < Math.min(want, 35)) {
-      const q = t.queries[0]
+    if (deep && !isLocalProxyBlocked() && currentMerged().length < Math.min(want, 60)) {
+      const q = !primary.mustMatchParent && primary.cleanName.length >= 6 ? `"${primary.cleanName}"` : primary.queries[0]
       const w = wordsFor(cc)
       const got = await Promise.allSettled(w.map((x) => bingHeadlines(`${q} ${x}`, cc, '', signal)))
       got.forEach((x) => {
@@ -719,34 +937,12 @@ export async function news(
     }
   }
 
-  onProgress?.(28)
-  await runScope(from, true)
-
-  // Outward local cascade: when a home street address or small district has < `want` (100) stories,
-  // fill with surrounding district / municipality news so the user gets up to 100 chronological local stories.
-  if (monthsBack === 0 && deep && currentMerged().length < want && from < place.parts.length - 1) {
-    for (let nextIdx = from + 1; nextIdx < place.parts.length; nextIdx++) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      const nextPart = place.parts[nextIdx]
-      // Avoid diluting city/district feeds with broad country-wide news if we already have solid local stories
-      if (nextPart.level === 'country' && currentMerged().length >= 20) break
-      onProgress?.(Math.min(90, 75 + nextIdx * 5))
-      await runScope(nextIdx, false)
-      if (currentMerged().length >= want) break
-    }
-  } else if (monthsBack === 0 && !deep && primary.own.level === 'street' && currentMerged().length === 0 && from + 1 < place.parts.length) {
-    // For background alert checks on a street address, also monitor immediate neighbourhood/district if present
-    if (place.parts[from + 1].level === 'district') {
-      await runScope(from + 1, false)
-    }
-  }
-
   if (deep && API && currentMerged().length < Math.min(want, 15)) {
     await keyed(primary.queries[0], cc, signal)
       .then((l) => {
         if (l.length) {
           ok++
-          lists.push(l.map((a) => ({ ...a, scopeTag: primary.cleanName, exactMatch: true })))
+          lists.push(tagItems(l))
           emit()
         }
       })
@@ -756,13 +952,12 @@ export async function news(
   if (deep) {
     const custom = loadSources()
     if (custom.length) {
-      const ed = cc
       await Promise.allSettled(
         custom.map((d) =>
-          headlines(`${primary.queries[0]} site:${d}`, ed, '', signal).then((items) => {
+          headlines(`${primary.queries[0]} site:${d}`, cc, '', signal).then((items) => {
             if (items.length) {
               ok++
-              lists.push(items.map((a) => ({ ...a, scopeTag: primary.cleanName, exactMatch: true })))
+              lists.push(tagItems(items))
               emit()
             }
           }),
@@ -774,7 +969,7 @@ export async function news(
   onProgress?.(95)
   if (!ok) throw new Error('err.source')
   const finalArticles = currentMerged()
-  const r = { articles: finalArticles, scope: primary.own.name, query: primary.queries[0], exactCount: countExact(finalArticles) }
+  const r = { articles: finalArticles, scope: primary.own.name, query: primary.queries[0], exactCount: finalArticles.length }
   if (deep) newsCache.set(ck, { at: Date.now(), r })
   return r
 }
@@ -794,8 +989,24 @@ async function hackerNews(query: string, max: number, signal?: AbortSignal): Pro
     signal: withTimeout(signal, 7000),
   })
   if (!r.ok) throw new Error('err.source')
-  const j = (await r.json()) as { hits: { objectID: string; title: string; created_at_i: number }[] }
-  return j.hits.map((h) => ({ url: `https://news.ycombinator.com/item?id=${h.objectID}`, title: h.title, source: 'hacker news', date: new Date(h.created_at_i * 1000), forum: true, lang: 'en' }))
+  const j = (await r.json()) as {
+    hits: { objectID: string; title: string; story_text?: string; created_at_i: number; points?: number; num_comments?: number }[]
+  }
+  return j.hits.map((h) => {
+    const comments = h.num_comments ?? 0
+    const pts = Math.max(0, h.points ?? 0)
+    return {
+      url: `https://news.ycombinator.com/item?id=${h.objectID}`,
+      title: h.title,
+      summary: h.story_text ? h.story_text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 260) || undefined : undefined,
+      source: comments > 0 ? `hacker news (${comments})` : 'hacker news',
+      date: clampDate(new Date(h.created_at_i * 1000)),
+      comments,
+      score: comments * 3 + pts,
+      forum: true,
+      lang: 'en',
+    }
+  })
 }
 
 async function stackExchange(query: string, site: string, max: number, signal?: AbortSignal): Promise<Article[]> {
@@ -804,9 +1015,22 @@ async function stackExchange(query: string, site: string, max: number, signal?: 
     { signal: withTimeout(signal, 7000) },
   )
   if (!r.ok) throw new Error('err.source')
-  const j = (await r.json()) as { items: { link: string; title: string; creation_date: number }[] }
+  const j = (await r.json()) as { items: { link: string; title: string; creation_date: number; answer_count?: number; score?: number }[] }
   const dec = (t: string) => new DOMParser().parseFromString(t, 'text/html').documentElement.textContent ?? t
-  return j.items.map((q) => ({ url: q.link, title: dec(q.title), source: `stack exchange ${site}`, date: new Date(q.creation_date * 1000), forum: true, lang: 'en' }))
+  return j.items.map((q) => {
+    const comments = q.answer_count ?? 0
+    const sc = Math.max(0, q.score ?? 0)
+    return {
+      url: q.link,
+      title: dec(q.title),
+      source: comments > 0 ? `stack exchange ${site} (${comments})` : `stack exchange ${site}`,
+      date: clampDate(new Date(q.creation_date * 1000)),
+      comments,
+      score: comments * 4 + sc,
+      forum: true,
+      lang: 'en',
+    }
+  })
 }
 
 const FB_ANCHORS: [number, string][] = [[2720053, '2016-05-13T11:34:00'], [3507628, '2023-02-08T06:09:00'], [3748124, '2026-10-04T04:15:00']]
@@ -816,13 +1040,13 @@ export function flashbackCreated(id: number): Date {
   return clampDate(new Date(a[1] + ((id - a[0]) / (b[0] - a[0])) * (b[1] - a[1])))
 }
 
-/** Parses Flashback `td_last_post` timestamps including `"Idag 20:15"`, `"Igår 18:40"`, and `"2026-11-08 14:22"`. */
+/** Parses Flashback timestamps including `"Idag 20:15"`, `"Igår 18:40"`, `"2026-11-08, 14:22"`, and `"2026-11-08 14:22"`. */
 export function parseFlashbackDate(raw: string, now = new Date()): Date | null {
   const text = raw.replace(/\s+/g, ' ').trim()
-  const iso = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})/)
+  const iso = text.match(/(\d{4}-\d{2}-\d{2})[,\s]+(\d{2}):(\d{2})/)
   if (iso) return clampDate(new Date(`${iso[1]}T${iso[2]}:${iso[3]}:00`), +now)
 
-  const rel = text.match(/\b(idag|ig[åa]r)\s+(\d{2}):(\d{2})/i)
+  const rel = text.match(/\b(idag|ig[åa]r)[,\s]+(\d{2}):(\d{2})/i)
   if (rel) {
     const d = new Date(now)
     if (/^ig/i.test(rel[1])) d.setDate(d.getDate() - 1)
@@ -835,42 +1059,49 @@ export function parseFlashbackDate(raw: string, now = new Date()): Date | null {
 let fbNext = 0
 const fbCache = new Map<string, { at: number; rows: Article[] }>()
 
-async function flashbackPage(query: string, order: string, searchPosts = false, signal?: AbortSignal): Promise<Article[]> {
+async function flashbackPage(query: string, order: string, searchPosts = false, page = 1, signal?: AbortSignal): Promise<Article[]> {
   if (isLocalProxyBlocked()) throw new Error('err.source')
-  const url = `${API}/fb/sok/?query=${encodeURIComponent(query)}&so=${order}${searchPosts ? '&sp=1' : ''}`
+  const url = `${API}/fb/sok/?query=${encodeURIComponent(query)}&so=${order}${searchPosts ? '&sp=1' : ''}${page > 1 ? `&p=${page}` : ''}`
   const hit = fbCache.get(url)
   if (hit && Date.now() - hit.at < 300_000) return hit.rows
   const wait = fbNext - Date.now()
-  fbNext = Math.max(Date.now(), fbNext) + 4200
+  fbNext = Math.max(Date.now(), fbNext) + 2200
   if (wait > 0) await abortableSleep(wait, signal)
   const r = await fetch(url, { signal: withTimeout(signal, 6000) })
   if (!r.ok) throw new Error('err.source')
   const doc = new DOMParser().parseFromString(new TextDecoder('iso-8859-1').decode(await r.arrayBuffer()), 'text/html')
 
   if (searchPosts) {
-    // Post-search mode (`sp=1`) finds street/address mentions inside individual Flashback posts
-    const postRows = [...doc.querySelectorAll('.post_head, .post')].flatMap((el) => {
+    // Post-search mode (`sp=1`) finds street/address/place mentions inside individual Flashback posts
+    const containers = [...doc.querySelectorAll('.post, tr')]
+    const seenUrls = new Set<string>()
+    const postRows = containers.flatMap((el) => {
       const link = el.querySelector('a[href^="/sp"], a[href^="/p"], a[href^="/t"]')
       if (!link) return []
-      const titleEl = el.querySelector('a[href^="/t"] strong, .post-heading a, a[href^="/t"]') ?? link
-      const bodyTxt = (el.querySelector('.post_message')?.textContent ?? '').replace(/\s+/g, ' ').trim()
-      const dt = parseFlashbackDate(el.textContent ?? '') ?? new Date()
       const href = link.getAttribute('href')!
+      const fullUrl = new URL(href, 'https://www.flashback.org').href
+      if (seenUrls.has(fullUrl)) return []
+      const titleEl = el.querySelector('a[href^="/t"] strong, .post-heading a, a[id^="thread_title_"], a[href^="/t"]') ?? link
+      const bodyTxt = (el.querySelector('.post_message, .post-body, td.td_title')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+      const tId = Number(el.innerHTML.match(/\/t(\d+)/)?.[1] ?? 0)
+      const dt = parseFlashbackDate(el.textContent ?? '') ?? (tId ? flashbackCreated(tId) : null)
+      if (!dt) return []
+      seenUrls.add(fullUrl)
       return [{
-        url: new URL(href, 'https://www.flashback.org').href,
+        url: fullUrl,
         title: (titleEl.textContent ?? '').replace(/\s+/g, ' ').trim() || query,
-        summary: bodyTxt ? bodyTxt.slice(0, 260) : undefined,
+        summary: bodyTxt ? bodyTxt.slice(0, 320) : undefined,
         source: 'flashback · inlägg',
         date: dt,
+        approx: !parseFlashbackDate(el.textContent ?? ''),
+        comments: 1,
         score: 25,
         forum: true,
         lang: 'sv',
       }]
     })
-    if (postRows.length) {
-      fbCache.set(url, { at: Date.now(), rows: postRows })
-      return postRows
-    }
+    fbCache.set(url, { at: Date.now(), rows: postRows })
+    return postRows
   }
 
   const rows = [...doc.querySelectorAll('td.td_title')].flatMap((td) => {
@@ -882,19 +1113,20 @@ async function flashbackPage(query: string, order: string, searchPosts = false, 
     const id = Number(a.getAttribute('href')!.match(/\/t(\d+)/)?.[1])
     if (!id && !lastDate) return []
     const createdDate = id ? flashbackCreated(id) : lastDate!
-    // Use latest activity date when thread had recent posts so active discussions surface immediately
     const activeRecently = lastDate && Date.now() - +lastDate < 30 * 864e5
     const effectiveDate = activeRecently ? lastDate : createdDate
     const repliesTxt = trEl?.querySelector('td.td_replies')?.textContent ?? ''
     const replies = Number((repliesTxt.replace(/[^\d]/g, '') || '0').slice(0, 7)) || 0
     const section = td.querySelector('.thread-forum-title')?.textContent?.trim()
+    const baseSrc = `flashback${section ? ` · ${section}` : ''}`
     return [{
       url: new URL(a.getAttribute('href')!, 'https://www.flashback.org').href,
       title: a.textContent!.trim(),
-      source: `flashback${section ? ` · ${section}` : ''}`,
+      source: replies > 0 ? `${baseSrc} (${replies})` : baseSrc,
       date: effectiveDate,
       approx: !activeRecently,
-      score: replies + (activeRecently ? 40 : 0),
+      comments: replies,
+      score: replies * 3 + (activeRecently ? 25 : 0),
       forum: true,
       lang: 'sv',
     }]
@@ -903,6 +1135,10 @@ async function flashbackPage(query: string, order: string, searchPosts = false, 
   return rows
 }
 
+/**
+ * Fetches up to `want` (default 100) forum threads/posts strictly discussing the chosen place (`place.parts[from]`).
+ * Never mixes in unrelated parent-city or country-wide forum posts.
+ */
 export async function forum(
   place: Place,
   from: number,
@@ -917,7 +1153,7 @@ export async function forum(
   let doneTasks = 0
   const placeNames = place.parts.slice(from).map((p) => (p.level === 'street' ? streetBaseName(p.name) : p.name))
   const subList = localSubreddits(cc, placeNames)
-  const totalTasks = 6 + (cc === 'SE' && !isLocalProxyBlocked() ? 1 : 0)
+  const totalTasks = 7 + (cc === 'SE' && !isLocalProxyBlocked() ? 1 : 0)
   onProgress?.(20)
 
   const snapshot = () => ({
@@ -927,88 +1163,148 @@ export async function forum(
       .sort((a, b) => +b.date - +a.date)
       .slice(0, want),
     scope: primary.own.name,
-    query: primary.fq,
+    query: primary.cleanName,
   })
 
-  const add = (list: Article[], scopeTag: string, exactMatch: boolean) => {
+  const add = (list: Article[]) => {
     doneTasks++
     onProgress?.(Math.min(92, 20 + Math.round((doneTasks / totalTasks) * 72)))
-    if (!list.length || signal?.aborted) return
+    if (signal?.aborted) return
+    let changed = false
     for (const a of list) {
-      if (!acc.has(a.url)) acc.set(a.url, { ...a, scopeTag, exactMatch })
+      if (!matchesTarget(a, primary)) continue
+      const prev = acc.get(a.url)
+      if (!prev || (a.score ?? 0) > (prev.score ?? 0)) {
+        acc.set(a.url, { ...a, scopeTag: primary.cleanName, exactMatch: true })
+        changed = true
+      }
     }
-    onPartial?.(snapshot())
+    if (changed) onPartial?.(snapshot())
   }
 
-  const runForumScope = async (idx: number, isExact: boolean) => {
-    const t = target(place, idx)
-    const minKeyLen = /[\u0600-\u06ff\u3040-\u9fff\uac00-\ud7af]/.test(t.cleanName) ? 2 : 4
-    const fkey = norm(t.cleanName).split(' ').filter((w) => w.length >= minKeyLen).sort((x, y) => y.length - x.length)[0]
-    const named = (l: Article[]) => (fkey ? l.filter((x) => norm(`${x.title} ${x.summary ?? ''}`).includes(fkey)) : l)
-    const rq = t.fq.replace(/ı/g, 'i').replace(/İ/g, 'I')
+  const exactPhrase = `"${primary.cleanName.replace(/ı/g, 'i').replace(/İ/g, 'I')}"`
+  const rqContext = primary.fq.replace(/ı/g, 'i').replace(/İ/g, 'I')
+  const redditQueries = [
+    ...new Set([
+      ...(!primary.mustMatchParent && primary.cleanName.length >= 4 ? [exactPhrase] : []),
+      rqContext,
+    ]),
+  ]
 
-    const flashback = async () => {
-      for (const order of ['pd', 'td', 'rd']) {
-        if (signal?.aborted) break
-        add(await flashbackPage(t.fq, order, false, signal), t.cleanName, isExact)
-      }
-      // For streets & districts, also search inside post bodies (`sp=1`) so street-level sightings inside threads surface!
-      if (['street', 'district'].includes(t.own.level) && !signal?.aborted) {
-        add(await flashbackPage(t.cleanName, 'pd', true, signal).catch(() => []), t.cleanName, isExact)
-      }
-    }
-
-    const redditFlow = async () => {
-      const rows = await reddit(rq, want, '', '', signal)
-      add(named(rows), t.cleanName, isExact)
-      for (const sub of subList.slice(0, 2)) {
-        if (acc.size >= Math.min(want, 50) || signal?.aborted) break
-        await abortableSleep(1000, signal)
-        add(named(await reddit(t.cleanName, want, sub, '', signal)), t.cleanName, isExact)
+  const flashback = async () => {
+    const fbQueries = [...new Set([...(!primary.mustMatchParent ? [primary.cleanName] : []), primary.fq])]
+    for (const fq of fbQueries) {
+      for (const order of ['pd', 'rd']) {
+        if (signal?.aborted || acc.size >= want) break
+        add(await flashbackPage(fq, order, false, 1, signal).catch(() => []))
       }
     }
-
-    return Promise.allSettled([
-      redditFlow(),
-      lemmyDiscussions(t.fq, cc, signal).then((l) => add(named(l), t.cleanName, isExact)),
-      regionalDiscussions(t.fq, cc, API, isLocalProxyBlocked(), signal).then((l) => add(named(l), t.cleanName, isExact)),
-      hackerNews(rq, want, signal).then((l) => add(named(l), t.cleanName, isExact)),
-      stackExchange(rq, 'travel', want, signal).then((l) => add(named(l), t.cleanName, isExact)),
-      stackExchange(rq, 'expatriates', want, signal).then((l) => add(named(l), t.cleanName, isExact)),
-      ...(cc === 'SE' && !isLocalProxyBlocked() ? [flashback()] : []),
-    ])
+    // Search inside individual Flashback posts (`sp=1`) across up to 3 pages so up to ~75 street/place post mentions surface
+    const postQ = primary.mustMatchParent ? primary.fq : primary.cleanName
+    for (const pg of [1, 2, 3]) {
+      if (signal?.aborted || acc.size >= want) break
+      const rows = await flashbackPage(postQ, 'pd', true, pg, signal).catch(() => [])
+      add(rows)
+      if (rows.length < 15) break
+    }
   }
 
-  const got = await runForumScope(from, true)
+  const redditFlow = async () => {
+    for (const q of redditQueries) {
+      if (signal?.aborted || acc.size >= want) break
+      const [newest, discussed] = await Promise.allSettled([
+        reddit(q, 100, '', '', 'new', signal),
+        want >= 40 ? reddit(q, 100, '', '', 'comments', signal) : Promise.resolve([] as Article[]),
+      ])
+      if (newest.status === 'fulfilled') add(newest.value)
+      if (discussed.status === 'fulfilled') add(discussed.value)
+    }
+    const subQuery = primary.mustMatchParent ? rqContext : primary.cleanName
+    for (const sub of subList.slice(0, 3)) {
+      if (acc.size >= want || signal?.aborted) break
+      await abortableSleep(500, signal)
+      add(await reddit(subQuery, 100, sub, '', 'new', signal).catch(() => []))
+    }
+  }
+
+  const lemmyQ = primary.mustMatchParent ? rqContext : exactPhrase
+  const hnQ = primary.mustMatchParent ? rqContext : exactPhrase
+
+  const got = await Promise.allSettled([
+    redditFlow(),
+    lemmyDiscussions(lemmyQ, cc, signal).then(add),
+    regionalDiscussions(primary.mustMatchParent ? primary.fq : primary.cleanName, cc, API, isLocalProxyBlocked(), signal).then(add),
+    hackerNews(hnQ, want, signal).then(add),
+    stackExchange(hnQ, 'travel', want, signal).then(add),
+    stackExchange(hnQ, 'expatriates', want, signal).then(add),
+    ...(cc === 'SE' && !isLocalProxyBlocked() ? [flashback()] : []),
+  ])
+
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-
-  // If a specific street address or small district has few forum threads, cascade outward to the neighbourhood/city
-  if (acc.size < Math.min(want, 20) && from < place.parts.length - 1) {
-    for (let nextIdx = from + 1; nextIdx < place.parts.length; nextIdx++) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (place.parts[nextIdx].level === 'country' && acc.size >= 8) break
-      await runForumScope(nextIdx, false)
-      if (acc.size >= Math.min(want, 30)) break
-    }
-  }
-
   if (acc.size === 0 && got.every((x) => x.status === 'rejected')) throw (got[0] as PromiseRejectedResult).reason
   onProgress?.(95)
   return snapshot()
 }
 
-/** Ranks forum threads by importance (exact address match + urgent topics + reply/upvote score + recency) for spotlighting on sparse addresses. */
+/**
+ * Ranks items for the "Most covered / Mest omskrivet" (`sortBy === 'hot'`) mode:
+ * - News: multi-source cluster coverage (`also.length`) + shared event/topic stem buzz across headlines
+ * - Forum: reply/comment count + community score/upvotes + shared topic buzz across threads
+ */
+export function rankMostCovered(articles: Article[], scope = ''): Article[] {
+  if (articles.length <= 1) return [...articles]
+  const scopeWords = new Set(norm(scope).split(' ').filter((w) => w.length >= 3))
+  const stem = (w: string) => (w.length >= 6 ? w.slice(0, 6) : w)
+  const tokensOf = (a: Article) => {
+    const s = new Set<string>()
+    for (const w of norm(a.orig ?? a.title).split(' ')) {
+      if (!w || w.length < 4 || STOP.has(w) || scopeWords.has(w)) continue
+      s.add(stem(w))
+    }
+    return [...s]
+  }
+
+  const freq = new Map<string, number>()
+  const itemTokens = new Map<string, string[]>()
+  for (const a of articles) {
+    const toks = tokensOf(a)
+    itemTokens.set(a.url, toks)
+    for (const t of toks) freq.set(t, (freq.get(t) ?? 0) + 1)
+  }
+
+  const hotScore = (a: Article): number => {
+    const toks = itemTokens.get(a.url) ?? []
+    const sharedCounts = toks
+      .map((t) => (freq.get(t) ?? 1) - 1)
+      .filter((n) => n > 0)
+      .sort((x, y) => y - x)
+      .slice(0, 3)
+    const buzz = sharedCounts.reduce((sum, n) => sum + n, 0)
+
+    if (a.forum) {
+      const parsedReplies = Number(a.source.match(/\((\d+)\)/)?.[1] ?? 0)
+      const replies = a.comments ?? parsedReplies
+      return replies * 5 + (a.score ?? 0) + buzz * 12
+    }
+    const multiOutlets = a.also?.length ?? 0
+    return multiOutlets * 500 + buzz * 30 + (a.score ?? 0)
+  }
+
+  return [...articles].sort((a, b) => hotScore(b) - hotScore(a) || +b.date - +a.date)
+}
+
+/** Ranks forum threads by importance (urgent topics + reply/upvote score + recency) for spotlighting when press coverage is sparse. */
 export function rankImportantForum(threads: Article[], limit = 8): Article[] {
   const now = Date.now()
   const scoreOf = (a: Article) => {
-    const exactBonus = a.exactMatch ? 120 : 0
     const parsedReplies = Number(a.source.match(/\((\d+)\)/)?.[1] ?? 0)
-    const engagement = Math.min(100, a.score ?? (parsedReplies > 0 ? parsedReplies * 2 : 10))
+    const replies = a.comments ?? parsedReplies
+    const engagement = Math.min(120, a.score ?? (replies > 0 ? replies * 3 : 10))
     const cats = topicsOf(`${a.orig ?? a.title} ${a.summary ?? ''}`)
     const topicBonus = cats.some((c) => c === 'Crime' || c === 'Accident') ? 45 : cats.length > 0 ? 20 : 0
     const ageDays = Math.max(0, (now - +a.date) / 864e5)
     const recency = ageDays <= 1 ? 80 : ageDays <= 7 ? 50 : ageDays <= 30 ? 25 : 5
-    return exactBonus + topicBonus + engagement + recency
+    return topicBonus + engagement + recency
   }
   return [...threads].sort((a, b) => scoreOf(b) - scoreOf(a) || +b.date - +a.date).slice(0, limit)
 }

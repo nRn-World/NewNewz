@@ -20,6 +20,7 @@ import {
   loadSources,
   news,
   rankImportantForum,
+  rankMostCovered,
   reverse,
   saveCats,
   saveFavs,
@@ -597,13 +598,11 @@ export default function App() {
       return true
     })
     if (sortBy === 'hot') {
-      return [...filtered].sort((a, b) => (b.also?.length ?? 0) - (a.also?.length ?? 0) || +b.date - +a.date)
+      return rankMostCovered(filtered, res?.scope ?? '')
     }
     // Strict chronological newest-first order (#01 is always the latest item)
     return [...filtered].sort((a, b) => +b.date - +a.date)
   })()
-
-  const hasCascadedItems = !!res && visibleArticles.some((a) => a.exactMatch === false)
 
   return (
     <div className="app">
@@ -891,12 +890,7 @@ export default function App() {
               </p>
             )}
 
-            {/* Notice + Top Forum Spotlight when an address/street has 0 or sparse direct press articles */}
-            {tab === 'news' && !onlyNew && res && (res.exactCount ?? res.articles.length) === 0 && res.articles.length > 0 && (
-              <p className="note">
-                {t('noExactNewsNote', { p: res.scope, n: String(res.articles.length) })}
-              </p>
-            )}
+            {/* Top Forum Spotlight when an address/place has 0 or sparse direct press articles */}
             {tab === 'news' && !onlyNew && activeSpotItems && activeSpotItems.length > 0 && (
               <section className="spotbox">
                 <div className="spothead">
@@ -912,7 +906,6 @@ export default function App() {
                         {fa.title}
                       </a>
                       <small>
-                        {fa.exactMatch && fa.scopeTag ? <span className="scopepill exact">📍 {fa.scopeTag}</span> : null}
                         {fa.source} · {ago(fa.date, lang)}
                       </small>
                     </li>
@@ -964,7 +957,6 @@ export default function App() {
                 const isSaved = savedUrlSet.has(a.url)
                 const previewSum = rInfo?.summary ?? a.summary
                 const previewImg = rInfo?.image ?? a.image
-                const showScopePill = hasCascadedItems && a.scopeTag
                 return (
                   <li key={a.url} style={{ '--i': Math.min(i, 12) } as React.CSSProperties}>
                     <b className="no">{String(i + 1).padStart(2, '0')}</b>
@@ -974,11 +966,6 @@ export default function App() {
                       </a>
                       <small className="storymeta">
                         <span>
-                          {showScopePill && (
-                            <span className={a.exactMatch ? 'scopepill exact' : 'scopepill'}>
-                              {a.exactMatch ? `📍 ${a.scopeTag}` : a.scopeTag}
-                            </span>
-                          )}
                           {a.forum ? '◆ ' : ''}
                           {a.source} · {a.approx ? '≈ ' : ''}
                           {ago(a.date, lang)}

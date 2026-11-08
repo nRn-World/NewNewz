@@ -36,6 +36,16 @@ const COUNTRY_SUBS: Record<string, string[]> = {
   IN: ['india'],
   JP: ['japan', 'japanlife'],
   KR: ['korea'],
+  TH: ['Thailand', 'ThailandTourism'],
+  ID: ['indonesia', 'bali'],
+  VN: ['VietNam'],
+  PH: ['Philippines'],
+  SG: ['singapore'],
+  MY: ['malaysia'],
+  HK: ['HongKong'],
+  TW: ['taiwan'],
+  ZA: ['southafrica'],
+  UA: ['ukraine'],
 }
 
 const CITY_SUBS: Record<string, string> = {
@@ -44,9 +54,18 @@ const CITY_SUBS: Record<string, string> = {
   gothenburg: 'gothenburg',
   malmo: 'malmo',
   uppsala: 'uppsala',
+  lund: 'lund',
+  umea: 'umea',
+  orebro: 'orebro',
+  linkoping: 'linkoping',
+  helsingborg: 'helsingborg',
+  oslo: 'oslo',
+  kobenhavn: 'copenhagen',
+  copenhagen: 'copenhagen',
   istanbul: 'istanbul',
   ankara: 'ankara',
   izmir: 'Izmir',
+  antalya: 'Antalya',
   berlin: 'berlin',
   munchen: 'Munich',
   munich: 'Munich',
@@ -72,16 +91,24 @@ const CITY_SUBS: Record<string, string> = {
   tokyo: 'Tokyo',
   dubai: 'dubai',
   cairo: 'Cairo',
+  phuket: 'phuket',
+  bangkok: 'Bangkok',
+  chiangmai: 'chiangmai',
+  'chiang mai': 'chiangmai',
+  bali: 'bali',
 }
 
-/** Country and city subreddits relevant to a selected place. */
+/** Country and city subreddits relevant to a selected place (city subreddit first so local hits take priority). */
 export function localSubreddits(cc: string, placeNames: string[]): string[] {
-  const out = new Set<string>(COUNTRY_SUBS[cc.toUpperCase()] ?? [])
+  const out = new Set<string>()
   for (const name of placeNames) {
     const citySub = CITY_SUBS[norm(name)]
     if (citySub) out.add(citySub)
   }
-  return [...out].slice(0, 3)
+  for (const cSub of COUNTRY_SUBS[cc.toUpperCase()] ?? []) {
+    out.add(cSub)
+  }
+  return [...out].slice(0, 4)
 }
 
 function timeoutSig(signal: AbortSignal | undefined, ms: number): AbortSignal {
@@ -95,7 +122,7 @@ export async function lemmyDiscussions(query: string, cc: string, signal?: Abort
   const host = upper === 'DE' || upper === 'AT' || upper === 'CH' ? 'https://feddit.org' : upper === 'FR' ? 'https://jlai.lu' : 'https://lemmy.world'
   const label = host === 'https://feddit.org' ? 'feddit' : host === 'https://jlai.lu' ? 'jlai.lu' : 'lemmy'
   try {
-    const r = await fetch(`${host}/api/v3/search?type_=Posts&sort=New&limit=30&q=${encodeURIComponent(query)}`, {
+    const r = await fetch(`${host}/api/v3/search?type_=Posts&sort=New&limit=50&q=${encodeURIComponent(query)}`, {
       signal: timeoutSig(signal, 6000),
     })
     if (!r.ok) return []
@@ -103,19 +130,25 @@ export async function lemmyDiscussions(query: string, cc: string, signal?: Abort
       posts?: {
         post?: { ap_id?: string; name?: string; body?: string; published?: string; thumbnail_url?: string }
         community?: { name?: string }
+        counts?: { comments?: number; score?: number }
       }[]
     }
     return (j.posts ?? [])
       .map((item) => {
         const p = item.post
         const comm = item.community?.name
+        const comments = item.counts?.comments ?? 0
+        const ups = item.counts?.score ?? 0
+        const baseSrc = comm ? `${label} !${comm}` : label
         return {
           url: p?.ap_id ?? '',
           title: (p?.name ?? '').trim(),
           summary: p?.body ? p.body.replace(/[#>*_`[\]()]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 260) : undefined,
           image: p?.thumbnail_url || undefined,
-          source: comm ? `${label} !${comm}` : label,
+          source: comments > 0 ? `${baseSrc} (${comments})` : baseSrc,
           date: new Date(p?.published ?? ''),
+          comments,
+          score: comments * 3 + Math.max(0, ups),
           forum: true,
         }
       })
@@ -125,7 +158,7 @@ export async function lemmyDiscussions(query: string, cc: string, signal?: Abort
   }
 }
 
-/** Country-specific regional forums (Menéame in Spain, Ekşi Sözlük in Turkey via Worker/bridge, Gutefrage in Germany). */
+/** Country-specific regional forums (Menéame in Spain, Ekşi Sözlük in Turkey via Worker/bridge). */
 export async function regionalDiscussions(
   query: string,
   cc: string,
@@ -159,7 +192,7 @@ export async function regionalDiscussions(
     }
   }
 
-  // Turkey: Ekşi Sözlük when Worker is connected (or public RSS/search bridge)
+  // Turkey: Ekşi Sözlük when Worker is connected
   if (upper === 'TR' && (apiBase || !proxyBlocked)) {
     try {
       if (apiBase) {
