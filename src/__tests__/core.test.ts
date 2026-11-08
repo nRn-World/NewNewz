@@ -1,0 +1,251 @@
+import { describe, expect, it } from 'vitest'
+import { type Area, type Areas, bounds, inside, kidsOf, labelPoint, link, norm } from '../areas'
+import { clusterArticles } from '../cluster'
+import { editionFor, wordsFor } from '../editions'
+import { type Article, type Place, flashbackCreated, inQuiet, parseGdeltDate, target, toPlace } from '../lib'
+import { circle, rings } from '../overpass'
+import { STOP, hotWords, topicCounts, topicsOf } from '../topics'
+import { decodePlace, encodePlace, readHashPlace } from '../urlState'
+// @ts-expect-error Worker module is plain ESM JS
+import { encryptWebPush, signVapidJwt } from '../../worker/index.js'
+
+const art = (title: string, source = 'SVT', hoursAgo = 1, extra: Partial<Article> = {}): Article => ({
+  url: `https://example.com/${encodeURIComponent(title)}-${source}`,
+  title,
+  source,
+  date: new Date(Date.now() - hoursAgo * 3600_000),
+  ...extra,
+})
+
+describe('norm() Unicode & administrative normalisation', () => {
+  it('folds Swedish, Turkish, Nordic, German and Polish characters', () => {
+    expect(norm('Rådhusgatan, Örebro kommun')).toBe('radhusgatan orebro')
+    expect(norm('Diyarbakır İli')).toBe('diyarbakir')
+    expect(norm('København & Łódź Straße')).toBe('kobenhavn lodz strasse')
+  })
+
+  it('preserves Arabic, Cyrillic, Greek and Japanese scripts instead of stripping them', () => {
+    expect(norm('محافظة القاهرة')).toBe('القاهره')
+    expect(norm('إمارة أبوظبي')).toContain('ابوظبي')
+    expect(norm('Київ')).toBe('киів')
+    expect(norm('東京都')).toBe('東京都')
+  })
+})
+
+describe('topics.ts STOP list, topicsOf & hotWords', () => {
+  it('populates STOP with full normalized words rather than single characters', () => {
+    expect(STOP.has('januari')).toBe(true)
+    expect(STOP.has('november')).toBe(true)
+    expect(STOP.has('lordag')).toBe(true)
+    expect(STOP.has('mellan')).toBe(true)
+    expect(STOP.has('about')).toBe(true)
+    expect(STOP.has('fevrier')).toBe(true)
+    expect(STOP.has('agustos')).toBe(true)
+    expect(STOP.has('الذين')).toBe(true)
+    expect(STOP.has(',')).toBe(false)
+  })
+
+  it('filters out months, weekdays, stop words and place name in hotWords()', () => {
+    const articles = [
+      art('Stor utredning kring tunnelbanan i Kista under november måndag'),
+      art('Ny utredning om tunnelbanan i Kista efter fredag november'),
+      art('Kista får utredning om tunnelbanan mellan stationer'),
+    ]
+    const words = hotWords(articles, 'Kista').map(([w]) => w)
+    expect(words).toContain('utredning')
+    expect(words).toContain('tunnelbanan')
+    expect(words).not.toContain('november')
+    expect(words).not.toContain('mandag')
+    expect(words).not.toContain('fredag')
+    expect(words).not.toContain('kista')
+    expect(words).not.toContain('mellan')
+    expect(words).not.toContain('under')
+  })
+
+  it('extracts Arabic hot words with compact script threshold', () => {
+    const articles = [
+      art('افتتاح محطة مترو جديدة في دبي هذا الصباح'),
+      art('توسعة محطة مترو دبي خلال العام الجديد'),
+    ]
+    const words = hotWords(articles, 'دبي').map(([w]) => w)
+    expect(words).toContain('محطه')
+    expect(words).toContain('مترو')
+    expect(words).not.toContain('دبي')
+  })
+
+  it('classifies topics across Swedish, English, Turkish and Arabic', () => {
+    expect(topicsOf('Polisen utreder skjutning i centrum')).toContain('Crime')
+    expect(topicsOf('Kraftig brand i lägenhetshus')).toEqual(expect.arrayContaining(['Accident', 'Housing']))
+    expect(topicsOf('İstanbul metro hattında arıza: trafik durdu')).toContain('Traffic')
+    expect(topicsOf('حريق كبير في مستشفى مركزي')).toEqual(expect.arrayContaining(['Accident', 'Health']))
+    const counts = topicCounts([art('Polis grep misstänkt'), art('Polis på plats vid rån'), art('Ny skola byggs')])
+    expect(counts[0]).toEqual(['Crime', 2])
+  })
+})
+
+describe('clusterArticles() multi-source event deduplication', () => {
+  it('clusters duplicate coverage of the same incident while keeping distinct local news separate', () => {
+    const list = [
+      art('Kraftig brand i flerfamiljshus i Kista i natt', 'SVT Nyheter', 1),
+      art('Stor brand i flerfamiljshus i Kista under natten', 'Dagens Nyheter', 2),
+      art('Brand i flerfamiljshus i Kista – räddningstjänsten larmades under natten', 'Mitt i', 3),
+      art('Ny förskola öppnar i Kista nästa vecka', 'Mitt i', 4),
+      art('Trafikolycka på E4 vid Kista skapar köer', 'Aftonbladet', 5),
+    ]
+    const clustered = clusterArticles(list, 'Kista')
+    expect(clustered).toHaveLength(3)
+    expect(clustered[0].title).toBe('Kraftig brand i flerfamiljshus i Kista i natt')
+    expect(clustered[0].also).toHaveLength(2)
+    expect(clustered[0].also?.map((x) => x.source)).toEqual(['Dagens Nyheter', 'Mitt i'])
+  })
+
+  it('never merges forum threads even when titles overlap', () => {
+    const list = [
+      art('Diskussion om ny tunnelbana i Kista', 'flashback', 1, { forum: true }),
+      art('Tråd om ny tunnelbana i Kista', 'reddit r/stockholm', 2, { forum: true }),
+    ]
+    expect(clusterArticles(list, 'Kista')).toHaveLength(2)
+  })
+})
+
+describe('editions.ts global news editions', () => {
+  it('maps global countries to their local language editions instead of defaulting everything to US', () => {
+    expect(editionFor('SE')).toMatchObject({ cc: 'SE', hl: 'sv', lang: 'sv' })
+    expect(editionFor('NO')).toMatchObject({ cc: 'NO', hl: 'no', lang: 'no' })
+    expect(editionFor('FI')).toMatchObject({ cc: 'FI', hl: 'fi', lang: 'fi' })
+    expect(editionFor('JP')).toMatchObject({ cc: 'JP', hl: 'ja', lang: 'ja' })
+    expect(editionFor('BR')).toMatchObject({ cc: 'BR', hl: 'pt-BR', lang: 'pt' })
+    expect(editionFor('EG')).toMatchObject({ cc: 'EG', hl: 'ar', lang: 'ar' })
+    expect(wordsFor('NO')).toContain('politi')
+  })
+})
+
+describe('areas.ts & overpass.ts geometry helpers', () => {
+  const outer: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+  const hole: [number, number][] = [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]]
+  const donut: Area['geometry'] = { type: 'Polygon', coordinates: [outer, hole] }
+
+  it('respects inner-ring holes (enclaves/lakes) in inside() and labelPoint()', () => {
+    expect(inside([2, 2], donut)).toBe(true)
+    expect(inside([5, 5], donut)).toBe(false) // inside enclave hole
+    expect(inside([15, 5], donut)).toBe(false)
+    const lp = labelPoint(donut)
+    expect(inside(lp, donut)).toBe(true)
+  })
+
+  it('handles antimeridian-spanning MultiPolygons without spanning [-180, 180]', () => {
+    const anti: Area['geometry'] = {
+      type: 'MultiPolygon',
+      coordinates: [
+        [[[170, 50], [179.9, 50], [179.9, 65], [170, 65], [170, 50]]],
+        [[[-179.9, 52], [-175, 52], [-175, 55], [-179.9, 55], [-179.9, 52]]],
+      ],
+    }
+    const [[w, s], [e, n]] = bounds(anti)
+    expect(e - w).toBeLessThan(30)
+    expect(s).toBe(50)
+    expect(n).toBe(65)
+  })
+
+  it('links districts to parent provinces and stitches boundary ways into closed rings', () => {
+    const adm1: Areas = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name: 'Stockholm' }, geometry: { type: 'Polygon', coordinates: [outer] } }] }
+    const adm2: Areas = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name: 'Kista' }, geometry: circle([2, 2], 500) }] }
+    expect(kidsOf(adm1.features[0], adm2).map((f) => f.properties.name)).toEqual(['Kista'])
+    link(adm1, adm2)
+    expect(adm2.features[0].properties.parent).toBe('Stockholm')
+
+    const joined = rings([
+      [[0, 0], [5, 0]],
+      [[5, 5], [5, 0]], // reversed segment
+      [[5, 5], [0, 5], [0, 0]],
+    ])
+    expect(joined).toHaveLength(1)
+    expect(joined[0][0]).toEqual(joined[0][joined[0].length - 1])
+  })
+})
+
+describe('urlState.ts UTF-8 encoding & legacy compatibility', () => {
+  it('round-trips Places with Nordic, Turkish and Arabic characters plus breadcrumb level', () => {
+    const p: Place = {
+      lat: 59.40316,
+      lon: 17.94479,
+      cc: 'se',
+      parts: [
+        { level: 'street', name: 'Ribegatan' },
+        { level: 'district', name: 'Kista – Ärvinge' },
+        { level: 'city', name: 'Stockholm' },
+        { level: 'country', name: 'Sverige' },
+      ],
+    }
+    const token = encodePlace(p, 1)
+    const decoded = readHashPlace(`#p=${token}`)
+    expect(decoded?.level).toBe(1)
+    expect(decoded?.place.parts.map((x) => x.name)).toEqual(p.parts.map((x) => x.name))
+  })
+
+  it('decodes legacy URI-escaped base64 #p= links', () => {
+    const legacyObj = { lat: 41.0082, lon: 28.9784, cc: 'tr', parts: [{ level: 'city', name: 'İstanbul' }] }
+    const bytes = new TextEncoder().encode(JSON.stringify(legacyObj))
+    const legacyB64 = encodeURIComponent(btoa(String.fromCharCode(...bytes)))
+    const decoded = decodePlace(legacyB64)
+    expect(decoded?.place.parts[0].name).toBe('İstanbul')
+  })
+})
+
+describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
+  it('evaluates quiet hours across midnight and daytime windows', () => {
+    const night = { on: true, from: '22:00', to: '07:00' }
+    expect(inQuiet(night, new Date('2026-11-08T23:15:00'))).toBe(true)
+    expect(inQuiet(night, new Date('2026-11-08T06:30:00'))).toBe(true)
+    expect(inQuiet(night, new Date('2026-11-08T12:00:00'))).toBe(false)
+    expect(inQuiet({ ...night, on: false }, new Date('2026-11-08T23:15:00'))).toBe(false)
+  })
+
+  it('estimates Flashback thread creation dates monotonically and builds precise targets', () => {
+    expect(+flashbackCreated(3750000)).toBeGreaterThan(+flashbackCreated(3507628))
+    const p: Place = {
+      lat: 59.4,
+      lon: 17.94,
+      cc: 'SE',
+      parts: [
+        { level: 'street', name: 'Borgarfjordsgatan' },
+        { level: 'district', name: 'Kista' },
+        { level: 'city', name: 'Stockholm' },
+      ],
+    }
+    const t = target(p, 0)
+    expect(t.queries).toEqual(['"Borgarfjordsgatan" "Kista"', '"Borgarfjordsgatan" "Stockholm"'])
+    expect(t.key).toBe('borgarfjordsgatan')
+  })
+
+  it('prevents metropolitan capitals like Diyarbakır from being inverted under inner sub-municipalities like Sur', () => {
+    const diyarbakir = toPlace({
+      geometry: { coordinates: [40.23, 37.91] },
+      properties: { name: 'Diyarbakır', type: 'district', city: 'Sur', state: 'Diyarbakır', country: 'Türkiye', countrycode: 'TR' },
+    })
+    expect(diyarbakir.parts).toEqual([
+      { level: 'city', name: 'Diyarbakır' },
+      { level: 'country', name: 'Türkiye' },
+    ])
+    expect(target(diyarbakir, 0).queries).toEqual(['"Diyarbakır"'])
+
+    const gdeltDate = parseGdeltDate('20261108T113000Z')
+    expect(gdeltDate.toISOString()).toBe('2026-11-08T11:30:00.000Z')
+  })
+
+  it('encrypts RFC 8291 aes128gcm Web Push payloads and signs ES256 VAPID JWTs', async () => {
+    const uaKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits'])
+    const uaPubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', uaKeys.publicKey))
+    const auth = crypto.getRandomValues(new Uint8Array(16))
+    const toB64u = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+    const body = await encryptWebPush(JSON.stringify({ title: 'Kista', body: 'Ny händelse' }), toB64u(uaPubRaw), toB64u(auth))
+    expect(body.byteLength).toBeGreaterThan(86)
+    expect(body[20]).toBe(65) // uncompressed P-256 server public key length in aes128gcm header
+
+    const vapidPair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+    const privJwk = await crypto.subtle.exportKey('jwk', vapidPair.privateKey)
+    const jwt = await signVapidJwt('https://fcm.googleapis.com/fcm/send/abc', JSON.stringify(privJwk))
+    expect(jwt.split('.')).toHaveLength(3)
+  })
+})

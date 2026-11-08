@@ -1,7 +1,58 @@
+import { useEffect, useState } from 'react'
 import type { Article } from './lib'
 import { hotWords, topicCounts } from './topics'
 
 type T = (k: string, v?: Record<string, string>) => string
+
+/** Newspaper-styled progress bar with step label, percentage, estimated seconds left, and optional cancel button. */
+export function ProgressBox({
+  label,
+  detail,
+  pct,
+  estTotalSec = 6,
+  onCancel,
+  t,
+}: {
+  label: string
+  detail?: string
+  pct: number
+  estTotalSec?: number
+  onCancel?: () => void
+  t: T
+}) {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const remaining = Math.max(1, estTotalSec - elapsed)
+  // Smoothly creep percentage between discrete milestones so the bar never looks frozen
+  const smoothPct = Math.min(96, Math.max(pct, Math.round((elapsed / (estTotalSec + 3)) * 88)))
+
+  return (
+    <div className="progbox" role="status" aria-live="polite">
+      <div className="proghead">
+        <span>
+          {label}
+          {detail ? ` · ${detail}` : ''}
+        </span>
+        <span className="progmeta">
+          {t('estLeft', { n: String(remaining) })} · {smoothPct}%
+          {onCancel && (
+            <button type="button" className="prog-x" onClick={onCancel} aria-label="×">
+              ×
+            </button>
+          )}
+        </span>
+      </div>
+      <div className="progtrack">
+        <i style={{ width: `${smoothPct}%` }} />
+      </div>
+    </div>
+  )
+}
 
 /** Topic chips with counts; the line above them says what the place is about right now. */
 export function TopicBar({ articles, topic, setTopic, t }: { articles: Article[]; topic: string; setTopic: (t: string) => void; t: T }) {
@@ -19,14 +70,13 @@ export function TopicBar({ articles, topic, setTopic, t }: { articles: Article[]
 }
 
 /** A short report on how busy the place is, built only from the headlines already loaded. */
-export function Report({ articles, scope, areas, t }: { articles: Article[]; scope: string; areas: { name: string; n: number }[]; t: T }) {
+export function Report({ articles, scope, areas, nowMs, t }: { articles: Article[]; scope: string; areas: { name: string; n: number }[]; nowMs: number; t: T }) {
   if (articles.length < 3) return null
-  const now = Date.now()
   const WEEK = 7 * 864e5
-  const n7 = articles.filter((a) => now - +a.date < WEEK).length
+  const n7 = articles.filter((a) => nowMs - +a.date < WEEK).length
   const oldest = Math.min(...articles.map((a) => +a.date))
-  const weeks = (now - oldest) / WEEK
-  const usual = weeks > 1.5 ? articles.length / weeks : undefined // only meaningful when the list reaches back more than a week
+  const weeks = (nowMs - oldest) / WEEK
+  const usual = weeks > 1.5 ? articles.length / weeks : undefined
   const verdict = usual === undefined ? '' : n7 > usual * 1.3 ? t('repAbove') : n7 < usual * 0.7 ? t('repBelow') : t('repNormal')
   const topics = topicCounts(articles).slice(0, 3)
   const words = hotWords(articles, scope)

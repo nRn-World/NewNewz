@@ -1,0 +1,442 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import * as maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
+import { type Area, at, boundaries, bounds, kidsOf, labelPoint, norm } from './areas'
+import type { Lang } from './i18n'
+import { type Article, type Place, reverse, reverseCountry } from './lib'
+import { SKY, earthStyle } from './mapStyle'
+import { type Street, circle, subPieces } from './overpass'
+import { readHashPlace } from './urlState'
+
+maplibregl.setWorkerUrl(workerUrl)
+
+export type SheetSnap = 'peek' | 'half' | 'full'
+export type AreaProg = { id: number; step: 1 | 2 | 3; pct: number; estSec: number }
+
+type Ctx = { cc: string; country: string }
+type Cur = Ctx & { mode: 1 | 2 | 3; feats: Area[]; sel?: string; state?: string; district?: string }
+
+const SNAP_RATIO: Record<SheetSnap, number> = { peek: 0.16, half: 0.5, full: 0.88 }
+
+export function useGlobe({
+  lang,
+  sheetSnap,
+  onSelectPlace,
+  onError,
+}: {
+  lang: Lang
+  sheetSnap: SheetSnap
+  onSelectPlace: (p: Place, level?: number) => void
+  onError: (msg: string) => void
+}) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const pinRef = useRef<maplibregl.Marker | null>(null)
+  const spinRef = useRef(true)
+  const curRef = useRef<Cur | null>(null)
+  const hovRef = useRef<number | string | undefined>(undefined)
+  const seqRef = useRef(0)
+  const areaAbortRef = useRef<AbortController | null>(null)
+  const heatRef = useRef<Record<string, number>>({})
+  const langRef = useRef(lang)
+  const snapRef = useRef(sheetSnap)
+  const selectCbRef = useRef(onSelectPlace)
+  const errCbRef = useRef(onError)
+
+  const [areaProgress, setAreaProgress] = useState<AreaProg | null>(null)
+  const [area, setArea] = useState<Area | null>(null)
+  const [heatEntries, setHeatEntries] = useState<{ name: string; n: number }[]>([])
+
+  useEffect(() => {
+    langRef.current = lang
+    snapRef.current = sheetSnap
+    selectCbRef.current = onSelectPlace
+    errCbRef.current = onError
+  }, [lang, sheetSnap, onSelectPlace, onError])
+
+  const cancelAreas = useCallback(() => {
+    seqRef.current++
+    areaAbortRef.current?.abort()
+    areaAbortRef.current = null
+    setAreaProgress(null)
+  }, [])
+
+  const applyPadding = useCallback((m: maplibregl.Map) => {
+    const w = window.innerWidth
+    if (w > 700) {
+      m.setPadding({ top: 0, bottom: 0, left: langRef.current === 'ar' ? 0 : 440, right: langRef.current === 'ar' ? 440 : 0 })
+    } else {
+      m.setPadding({ top: 0, left: 0, right: 0, bottom: Math.round(window.innerHeight * SNAP_RATIO[snapRef.current]) })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (mapRef.current) applyPadding(mapRef.current)
+  }, [lang, sheetSnap, applyPadding])
+
+  const drawPieces = useCallback((c: Cur) => {
+    const m = mapRef.current
+    const src = m?.getSource('areas') as maplibregl.GeoJSONSource | undefined
+    const names = m?.getSource('area-names') as maplibregl.GeoJSONSource | undefined
+    if (!src || !names) return
+    curRef.current = c
+    hovRef.current = undefined
+    src.setData({
+      type: 'FeatureCollection',
+      features: c.feats.map((f) => ({
+        ...f,
+        properties: { ...f.properties, sel: f.properties.name === c.sel ? 1 : 0, n: heatRef.current[f.properties.name] ?? 0 },
+      })),
+    } as never)
+    names.setData({
+      type: 'FeatureCollection',
+      features: [...new Map(c.feats.map((f) => [f.properties.name, f])).values()].map((f) => ({
+        type: 'Feature',
+        properties: {
+          name: f.properties.name,
+          label: heatRef.current[f.properties.name] ? `${f.properties.name} · ${heatRef.current[f.properties.name]}` : f.properties.name,
+        },
+        geometry: { type: 'Point', coordinates: labelPoint(f.geometry) },
+      })),
+    } as never)
+  }, [])
+
+  const loadSub = useCallback(
+    async (f: Area, c: Cur, me: number, ctrl: AbortController) => {
+      setAreaProgress({ id: me, step: 3, pct: 72, estSec: 6 })
+      try {
+        const subs = await subPieces(f, ctrl.signal)
+        if (me === seqRef.current && !ctrl.signal.aborted && subs.length) {
+          drawPieces({ ...c, mode: 3, feats: subs, sel: undefined, district: f.properties.name })
+        }
+      } catch {
+        // Provinces/districts are already drawn on screen; do not alarm the user if optional neighbourhood shapes time out
+      } finally {
+        if (me === seqRef.current) setAreaProgress(null)
+      }
+    },
+    [drawPieces],
+  )
+
+  const showAreas = useCallback(
+    async (c: Ctx, adm1?: string, selected?: string, pt?: [number, number], withSub = false): Promise<[[number, number], [number, number]] | undefined> => {
+      const m = mapRef.current
+      if (!m?.getSource('areas')) return
+      areaAbortRef.current?.abort()
+      const ctrl = new AbortController()
+      areaAbortRef.current = ctrl
+      const me = ++seqRef.current
+      setAreaProgress({ id: me, step: 1, pct: 22, estSec: withSub ? 7 : 3 })
+      let step3Launched = false
+      try {
+        const a1 = await boundaries(c.cc, 1)
+        if (me !== seqRef.current || ctrl.signal.aborted) return
+        let feats = a1?.features ?? []
+        let mode: 1 | 2 = 1
+        const hit = (pt && at(feats, pt)) || (adm1 && feats.find((f) => norm(f.properties.name) === norm(adm1)))
+        if (a1 && hit) {
+          setAreaProgress({ id: me, step: 2, pct: 50, estSec: withSub ? 5 : 2 })
+          const a2 = await boundaries(c.cc, 2).catch(() => null)
+          if (me !== seqRef.current || ctrl.signal.aborted) return
+          if (a2) {
+            const kids = kidsOf(hit, a2)
+            if (kids.length) {
+              feats = kids
+              mode = 2
+              selected ??= pt && at(kids, pt)?.properties.name
+            }
+          }
+        }
+        drawPieces({ ...c, mode, feats, sel: selected, state: hit ? hit.properties.name : undefined })
+        const selArea = mode === 2 && selected ? (feats.find((f) => f.properties.name === selected) ?? null) : null
+        setArea(selArea)
+        if (withSub && selArea) {
+          step3Launched = true
+          void loadSub(selArea, curRef.current!, me, ctrl)
+        }
+        if (hit) return bounds(hit.geometry)
+        return feats.reduce<[[number, number], [number, number]] | undefined>((u, f) => {
+          const [[w, s], [e, n]] = bounds(f.geometry)
+          return u ? [[Math.min(u[0][0], w), Math.min(u[0][1], s)], [Math.max(u[1][0], e), Math.max(u[1][1], n)]] : [[w, s], [e, n]]
+        }, undefined)
+      } catch {
+        if (me === seqRef.current && !ctrl.signal.aborted) errCbRef.current('err.areas')
+      } finally {
+        if (me === seqRef.current && !step3Launched) setAreaProgress(null)
+      }
+    },
+    [drawPieces, loadSub],
+  )
+
+  const placePin = useCallback((p: Place) => {
+    spinRef.current = false
+    pinRef.current?.remove()
+    const m = mapRef.current
+    if (m) pinRef.current = new maplibregl.Marker({ color: '#c8321e' }).setLngLat([p.lon, p.lat]).addTo(m)
+  }, [])
+
+  const pickOnGlobe = useCallback(
+    (p: Place, fly = true, initialLevel = 0) => {
+      placePin(p)
+      selectCbRef.current(p, initialLevel)
+      const m = mapRef.current
+      const targetPart = p.parts[initialLevel] ?? p.parts[0]
+      const zoom = { street: 15, district: 13, city: 11, state: 6, country: 4 }[targetPart.level]
+      if (fly && m) m.flyTo({ center: [p.lon, p.lat], zoom, pitch: zoom > 9 ? 55 : 0, duration: 2200 })
+      const country = p.parts[p.parts.length - 1]
+      if (p.cc && country?.level === 'country') {
+        const stateHint = p.parts.find((x) => x.level === 'state')?.name ?? (targetPart.level === 'city' ? targetPart.name : undefined)
+        showAreas(
+          { cc: p.cc, country: country.name },
+          stateHint,
+          undefined,
+          ['street', 'district', 'city'].includes(targetPart.level) ? [p.lon, p.lat] : undefined,
+          targetPart.level === 'district',
+        ).then((box) => {
+          const lv = targetPart.level
+          if (fly && m && box && (lv === 'state' || lv === 'country')) {
+            m.fitBounds(box, { padding: 40, pitch: lv === 'state' ? 40 : 0, duration: 2000, maxZoom: 11 })
+          }
+        })
+      }
+    },
+    [placePin, showAreas],
+  )
+
+  const focusCrumb = useCallback(
+    (place: Place, idx: number) => {
+      const part = place.parts[idx]
+      const country = place.parts[place.parts.length - 1]
+      if (!place.cc || !part || !country) return
+      if (part.level === 'country') void showAreas({ cc: place.cc, country: country.name })
+      else if (part.level === 'state') void showAreas({ cc: place.cc, country: country.name }, part.name)
+    },
+    [showAreas],
+  )
+
+  const focusStreet = useCallback(
+    (place: Place, st: Street) => {
+      const next: Place = {
+        lat: st.lat,
+        lon: st.lon,
+        cc: place.cc,
+        parts: [{ level: 'street', name: st.name }, ...place.parts.filter((p) => p.level !== 'street')],
+      }
+      placePin(next)
+      selectCbRef.current(next, 0)
+      mapRef.current?.flyTo({ center: [st.lon, st.lat], zoom: 16, pitch: 55, duration: 1800 })
+    },
+    [placePin],
+  )
+
+  const updateHeat = useCallback(
+    (articles: Article[] | undefined, active: boolean) => {
+      const c = curRef.current
+      if (!c || !active || !articles) return
+      const heads = articles.map((a) => norm(a.orig ?? a.title))
+      const next: Record<string, number> = {}
+      for (const f of c.feats) {
+        const nm = norm(f.properties.name)
+        if (nm.length >= 3) {
+          const n = heads.filter((h) => h.includes(nm)).length
+          if (n) next[f.properties.name] = n
+        }
+      }
+      if (JSON.stringify(next) !== JSON.stringify(heatRef.current)) {
+        heatRef.current = next
+        setHeatEntries(Object.entries(next).map(([name, n]) => ({ name, n })))
+        drawPieces(c)
+      }
+    },
+    [drawPieces],
+  )
+
+  useEffect(() => {
+    let m: maplibregl.Map | undefined
+    let timer: ReturnType<typeof setInterval>
+    let dead = false
+
+    const startZoom = () => {
+      const w = window.innerWidth
+      const free = w > 700 ? Math.min(w - 440, window.innerHeight) : Math.min(w, window.innerHeight * 0.5)
+      return Math.max(0.5, Math.log2((0.9 * free) / 163))
+    }
+
+    const onResize = () => {
+      if (m) applyPadding(m)
+    }
+    window.addEventListener('resize', onResize)
+
+    const onArea = (f: Area) => {
+      const c = curRef.current
+      if (!c || !m) return
+      const [[w, s], [e, n]] = bounds(f.geometry)
+      const name = f.properties.name
+      const country = { level: 'country' as const, name: c.country }
+      const state = { level: 'state' as const, name: c.state ?? f.properties.parent ?? '' }
+      const parts =
+        c.mode === 1
+          ? [{ level: 'state' as const, name }, country]
+          : c.mode === 2
+            ? [{ level: 'city' as const, name }, state, country]
+            : [{ level: 'district' as const, name }, { level: 'city' as const, name: c.district ?? f.properties.parent ?? '' }, state, country]
+      const next: Place = { lat: (s + n) / 2, lon: (w + e) / 2, cc: c.cc, parts }
+      placePin(next)
+      selectCbRef.current(next, 0)
+      m.fitBounds([[w, s], [e, n]], { padding: 80, duration: 2000, pitch: c.mode === 1 ? 0 : 50, maxZoom: f.properties.center ? 14 : 13 })
+      if (c.mode === 1) {
+        setArea(null)
+        void showAreas(c, name)
+        return
+      }
+      setArea(f.properties.center ? { ...f, geometry: circle(f.properties.center, 1500) } : f)
+      drawPieces({ ...c, sel: name })
+      if (c.mode === 3) return
+      areaAbortRef.current?.abort()
+      const ctrl = new AbortController()
+      areaAbortRef.current = ctrl
+      const me = ++seqRef.current
+      void loadSub(f, { ...c, sel: name }, me, ctrl)
+    }
+
+    earthStyle()
+      .then((style) => {
+        if (dead || !boxRef.current) return
+        m = new maplibregl.Map({
+          container: boxRef.current,
+          style: style as maplibregl.StyleSpecification,
+          center: [25, 35],
+          zoom: startZoom(),
+          maxPitch: 75,
+          attributionControl: { compact: true },
+        })
+        mapRef.current = m
+        applyPadding(m)
+        m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right')
+
+        const closeAttrib = () => {
+          const el = m!.getContainer().querySelector('.maplibregl-ctrl-attrib')
+          el?.classList.remove('maplibregl-compact-show')
+          el?.removeAttribute('open')
+        }
+        m.once('load', closeAttrib)
+        m.once('idle', closeAttrib)
+
+        m.on('style.load', () => {
+          m!.setProjection({ type: 'globe' })
+          m!.setSky(SKY as never)
+          const font = (m!.getStyle().layers.find((l) => l.type === 'symbol')?.layout as { 'text-font'?: string[] } | undefined)?.['text-font']
+          m!.addSource('areas', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, generateId: true })
+          m!.addLayer({
+            id: 'areas-fill',
+            type: 'fill',
+            source: 'areas',
+            paint: {
+              'fill-color': '#ff5a3c',
+              'fill-opacity': [
+                'case',
+                ['==', ['get', 'sel'], 1],
+                0,
+                ['boolean', ['feature-state', 'hover'], false],
+                0.3,
+                ['+', 0.05, ['*', 0.05, ['min', ['get', 'n'], 10]]],
+              ],
+            },
+          })
+          m!.addLayer({
+            id: 'areas-line',
+            type: 'line',
+            source: 'areas',
+            paint: {
+              'line-color': ['case', ['==', ['get', 'sel'], 1], '#ffd166', '#ffffff'],
+              'line-width': ['case', ['==', ['get', 'sel'], 1], 3, 1],
+              'line-opacity': 0.85,
+            },
+          })
+          m!.addSource('area-names', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+          m!.addLayer({
+            id: 'areas-label',
+            type: 'symbol',
+            source: 'area-names',
+            minzoom: 3,
+            layout: { 'text-field': ['get', 'label'], 'text-size': 13, ...(font ? { 'text-font': font } : {}) },
+            paint: { 'text-color': '#fff', 'text-halo-color': '#05070d', 'text-halo-width': 1.6 },
+          })
+        })
+
+        const unhover = () => {
+          if (hovRef.current !== undefined) m!.setFeatureState({ source: 'areas', id: hovRef.current }, { hover: false })
+          hovRef.current = undefined
+          m!.getCanvas().style.cursor = ''
+        }
+
+        m.on('mousemove', 'areas-fill', (e) => {
+          const id = e.features?.[0]?.id
+          if (id === hovRef.current) return
+          unhover()
+          if (id !== undefined) {
+            hovRef.current = id
+            m!.setFeatureState({ source: 'areas', id }, { hover: true })
+            m!.getCanvas().style.cursor = 'pointer'
+          }
+        })
+        m.on('mouseleave', 'areas-fill', unhover)
+
+        m.on('click', async (e) => {
+          const c = curRef.current
+          const hit = c && m!.getLayer('areas-fill') ? m!.queryRenderedFeatures(e.point, { layers: ['areas-fill'] })[0] : undefined
+          if (hit) {
+            const f = c!.feats.find((x) => x.properties.name === hit.properties.name && (c!.mode === 1 || x.properties.parent === hit.properties.parent))
+            if (f && f.properties.name !== c!.sel) return onArea(f)
+          }
+          try {
+            errCbRef.current('')
+            if (m!.getZoom() < 5) {
+              const countryHit = await reverseCountry(e.lngLat.lat, e.lngLat.lng, langRef.current)
+              if (countryHit) pickOnGlobe(countryHit, true)
+              return
+            }
+            const p = await reverse(e.lngLat.lat, e.lngLat.lng, langRef.current)
+            if (p) pickOnGlobe(p, false)
+          } catch (x) {
+            errCbRef.current((x as Error).message)
+          }
+        })
+
+        m.on('mousedown', () => (spinRef.current = false))
+        m.on('touchstart', () => (spinRef.current = false))
+
+        m.once('load', () => {
+          const route = readHashPlace(location.hash)
+          if (route) pickOnGlobe(route.place, true, route.level ?? 0)
+        })
+
+        timer = setInterval(
+          () => spinRef.current && m!.getZoom() < 3 && m!.easeTo({ center: [m!.getCenter().lng + 12, m!.getCenter().lat], duration: 1000, easing: (n) => n }),
+          1000,
+        )
+      })
+      .catch(() => errCbRef.current('err.source'))
+
+    return () => {
+      dead = true
+      areaAbortRef.current?.abort()
+      clearInterval(timer)
+      window.removeEventListener('resize', onResize)
+      m?.remove()
+    }
+  }, [applyPadding, drawPieces, loadSub, pickOnGlobe, placePin, showAreas])
+
+  return {
+    boxRef,
+    area,
+    areaProgress,
+    cancelAreas,
+    heatEntries,
+    pickOnGlobe,
+    focusCrumb,
+    focusStreet,
+    updateHeat,
+  }
+}

@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Article } from './lib'
 
 type Props = {
-  articles: Article[]; place: string; date: string; pageWord: string; tabName: string
-  ago: (d: Date) => string; onClose: () => void
+  articles: Article[]
+  place: string
+  date: string
+  pageWord: string
+  tabName: string
+  ago: (d: Date) => string
+  onClose: () => void
 }
 
 const FRONT = 9
@@ -45,38 +50,49 @@ export default function Paper({ articles, place, date, pageWord, tabName, ago, o
   const [page, setPage] = useState(0)
   const [dir, setDir] = useState<1 | -1>(1)
   const drag = useRef<{ x: number; moved: boolean } | null>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const isRtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
 
-  const go = (n: number) => {
-    const next = Math.max(0, Math.min(pages.length - 1, n))
-    if (next === page) return
-    setDir(next > page ? 1 : -1)
-    setPage(next)
-  }
+  const go = useCallback(
+    (n: number) => {
+      const next = Math.max(0, Math.min(pages.length - 1, n))
+      if (next === page) return
+      setDir(next > page ? 1 : -1)
+      setPage(next)
+    },
+    [page, pages.length],
+  )
+
+  useEffect(() => {
+    closeRef.current?.focus()
+  }, [])
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') go(page + 1)
-      else if (e.key === 'ArrowLeft') go(page - 1)
+      if (e.key === 'ArrowRight') go(page + (isRtl ? -1 : 1))
+      else if (e.key === 'ArrowLeft') go(page + (isRtl ? 1 : -1))
       else if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  })
+  }, [go, page, isRtl, onClose])
 
   const rows = pages[page]
   const item = (a: Article | undefined, cls = '') =>
     a && (
       <section key={a.url} className={`story ${cls}`}>
         <h3><a href={a.url} target="_blank" rel="noopener noreferrer" draggable={false}>{a.title}</a></h3>
-        <small>{a.source} · {a.approx ? '≈ ' : ''}{ago(a.date)}</small>
+        <small>
+          {a.source}{a.also?.length ? ` (+${a.also.length})` : ''} · {a.approx ? '≈ ' : ''}{ago(a.date)}
+        </small>
       </section>
     )
 
   return (
-    <div className="paper" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <button className="paper-x" onClick={onClose} aria-label="×">×</button>
-      <button className="paper-nav prev" onClick={() => go(page - 1)} disabled={page === 0} aria-label="‹">‹</button>
-      <button className="paper-nav next" onClick={() => go(page + 1)} disabled={page === pages.length - 1} aria-label="›">›</button>
+    <div className="paper" role="dialog" aria-modal="true" aria-label={`NewzLocal – ${place}`} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <button ref={closeRef} className="paper-x" onClick={onClose} aria-label="×">×</button>
+      <button className="paper-nav prev" onClick={() => go(page + (isRtl ? 1 : -1))} disabled={isRtl ? page === pages.length - 1 : page === 0} aria-label="‹">‹</button>
+      <button className="paper-nav next" onClick={() => go(page + (isRtl ? -1 : 1))} disabled={isRtl ? page === 0 : page === pages.length - 1} aria-label="›">›</button>
       <div className="stack s1" aria-hidden />
       <div className="stack s2" aria-hidden />
       <article
@@ -88,7 +104,7 @@ export default function Paper({ articles, place, date, pageWord, tabName, ago, o
           const d = drag.current
           drag.current = null
           if (d?.moved) {
-            const dx = e.clientX - d.x
+            const dx = (e.clientX - d.x) * (isRtl ? -1 : 1)
             if (dx < -50) go(page + 1)
             else if (dx > 50) go(page - 1)
           }

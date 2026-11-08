@@ -15,6 +15,9 @@ const en: D = {
   alerts: 'Alerts', alertTopics: 'Alert me about', alertAll: 'Everything', quiet: 'Quiet hours for this category (no pop-ups)', quietFrom: 'from', quietTo: 'to',
   share: 'Share', copied: 'Link copied', mySources: 'My news sources', addSource: 'Add a news site, e.g. mitti.se', removeSource: 'Remove',
   offline: 'Offline: showing saved news', install: 'Install app',
+  nearMe: 'Near me', locating: 'Locating…', 'err.geo': 'Location access was denied',
+  moreSources: '+{n} sources', delFav: 'Remove favourite', pushOn: 'Background push notifications are active.', sheetToggle: 'Resize panel',
+  areaStep1: '1/3 Regions', areaStep2: '2/3 Districts', areaStep3: '3/3 Neighbourhoods', estLeft: '~{n}s left',
 }
 
 const sv: D = {
@@ -29,11 +32,14 @@ const sv: D = {
   alerts: 'Larm', alertTopics: 'Larma mig om', alertAll: 'Allt', quiet: 'Tysta timmar för kategorin (inga popup)', quietFrom: 'från', quietTo: 'till',
   share: 'Dela', copied: 'Länk kopierad', mySources: 'Mina nyhetskällor', addSource: 'Lägg till en nyhetssajt, t.ex. mitti.se', removeSource: 'Ta bort',
   offline: 'Offline: visar sparade nyheter', install: 'Installera appen',
+  nearMe: 'Nära mig', locating: 'Hittar plats…', 'err.geo': 'Platsåtkomst nekades',
+  moreSources: '+{n} källor', delFav: 'Ta bort favorit', pushOn: 'Bakgrundsnotiser (Web Push) är aktiva.', sheetToggle: 'Ändra panelstorlek',
+  areaStep1: '1/3 Regiongränser', areaStep2: '2/3 Distrikt', areaStep3: '3/3 Stadsdelar', estLeft: '~{n} s kvar',
 }
 
 const tr_: D = {
   tAll: 'Tüm konular', tCrime: 'Suç', tTraffic: 'Trafik', tHousing: 'Konut', tSchools: 'Okullar', tSport: 'Spor', tPolitics: 'Siyaset',
-  tBusiness: 'Ekonomi', tWeather: 'Hava', tAccident: 'Kazalar ve yangın', tCulture: 'Kültür', tHealth: 'Sağlık',
+  tBusiness: 'Ekonomi', tWeather: 'Hava', tAccident: 'Kazalar ve yangın', tCulture: 'Kultur', tHealth: 'Sağlık',
   sumNow: 'Şu an:', report: 'Mahalle raporu', repWeek: 'Son 7 günde {n} haber', repUsual: 'normalde haftada {n}',
   repAbove: 'Normalden hareketli', repBelow: 'Normalden sakin', repNormal: 'Her zamanki gibi', repTop: 'En çok konuşulan', repHot: 'En hareketli bölgeler',
   timeTravel: 'Zaman', tNow: 'Şimdi', t1m: '1 ay önce', t3m: '3 ay önce', t6m: '6 ay önce', t1y: '1 yıl önce', archiveNote: '{when} civarından haberler.',
@@ -43,6 +49,9 @@ const tr_: D = {
   alerts: 'Uyarılar', alertTopics: 'Şunlar için uyar', alertAll: 'Hepsi', quiet: 'Sessiz saatler (bildirim yok)', quietFrom: 'başlangıç', quietTo: 'bitiş',
   share: 'Paylaş', copied: 'Bağlantı kopyalandı', mySources: 'Haber kaynaklarım', addSource: 'Bir haber sitesi ekleyin, örn. hurriyet.com.tr', removeSource: 'Kaldır',
   offline: 'Çevrimdışı: kayıtlı haberler gösteriliyor', install: 'Uygulamayı yükle',
+  nearMe: 'Yakınımda', locating: 'Konum bulunuyor…', 'err.geo': 'Konum izni reddedildi',
+  moreSources: '+{n} kaynak', delFav: 'Favoriyi kaldır', pushOn: 'Arka plan bildirimleri etkin.', sheetToggle: 'Paneli boyutlandır',
+  areaStep1: '1/3 İl sınırları', areaStep2: '2/3 İlçeler', areaStep3: '3/3 Mahalleler', estLeft: '~{n} sn kaldı',
 }
 
 const ar: D = {
@@ -57,6 +66,9 @@ const ar: D = {
   alerts: 'تنبيهات', alertTopics: 'نبهني عن', alertAll: 'كل شيء', quiet: 'ساعات الهدوء (بلا إشعارات)', quietFrom: 'من', quietTo: 'إلى',
   share: 'مشاركة', copied: 'تم نسخ الرابط', mySources: 'مصادري الإخبارية', addSource: 'أضف موقعًا إخباريًا مثل aljazeera.net', removeSource: 'إزالة',
   offline: 'دون اتصال: عرض الأخبار المحفوظة', install: 'ثبّت التطبيق',
+  nearMe: 'بالقرب مني', locating: 'جارٍ تحديد الموقع…', 'err.geo': 'تم رفض الوصول إلى الموقع',
+  moreSources: '+{n} مصادر', delFav: 'إزالة المفضلة', pushOn: 'إشعارات الخلفية مفعلة.', sheetToggle: 'تغيير حجم اللوحة',
+  areaStep1: '1/3 المناطق', areaStep2: '2/3 المقاطعات', areaStep3: '3/3 الأحياء', estLeft: 'متبقي ~{n} ث',
 }
 
 const es: D = {
@@ -71,6 +83,9 @@ const es: D = {
   alerts: 'Alertas', alertTopics: 'Avisarme de', alertAll: 'Todo', quiet: 'Horas de silencio (sin avisos)', quietFrom: 'de', quietTo: 'a',
   share: 'Compartir', copied: 'Enlace copiado', mySources: 'Mis fuentes', addSource: 'Añade un sitio de noticias, p. ej. elpais.com', removeSource: 'Quitar',
   offline: 'Sin conexión: noticias guardadas', install: 'Instalar la app',
+  nearMe: 'Cerca de mí', locating: 'Ubicando…', 'err.geo': 'Se denegó el acceso a la ubicación',
+  moreSources: '+{n} fuentes', delFav: 'Quitar favorito', pushOn: 'Notificaciones en segundo plano activas.', sheetToggle: 'Cambiar tamaño del panel',
+  areaStep1: '1/3 Regiones', areaStep2: '2/3 Distritos', areaStep3: '3/3 Barrios', estLeft: '~{n}s restantes',
 }
 
 const fr: D = {
@@ -85,6 +100,9 @@ const fr: D = {
   alerts: 'Alertes', alertTopics: 'M’alerter pour', alertAll: 'Tout', quiet: 'Heures calmes (sans notification)', quietFrom: 'de', quietTo: 'à',
   share: 'Partager', copied: 'Lien copié', mySources: 'Mes sources', addSource: 'Ajoutez un site d’actualités, ex. lemonde.fr', removeSource: 'Retirer',
   offline: 'Hors ligne : actualités enregistrées', install: 'Installer l’appli',
+  nearMe: 'Autour de moi', locating: 'Localisation…', 'err.geo': 'Accès à la position refusé',
+  moreSources: '+{n} sources', delFav: 'Retirer le favori', pushOn: 'Notifications en arrière-plan actives.', sheetToggle: 'Redimensionner le panneau',
+  areaStep1: '1/3 Régions', areaStep2: '2/3 Districts', areaStep3: '3/3 Quartiers', estLeft: '~{n}s restantes',
 }
 
 const de: D = {
@@ -99,6 +117,9 @@ const de: D = {
   alerts: 'Warnungen', alertTopics: 'Benachrichtige mich zu', alertAll: 'Alles', quiet: 'Ruhezeiten (keine Pop-ups)', quietFrom: 'von', quietTo: 'bis',
   share: 'Teilen', copied: 'Link kopiert', mySources: 'Meine Nachrichtenquellen', addSource: 'Nachrichtenseite hinzufügen, z. B. spiegel.de', removeSource: 'Entfernen',
   offline: 'Offline: gespeicherte Nachrichten', install: 'App installieren',
+  nearMe: 'In meiner Nähe', locating: 'Standort wird ermittelt…', 'err.geo': 'Standortzugriff wurde verweigert',
+  moreSources: '+{n} Quellen', delFav: 'Favorit entfernen', pushOn: 'Hintergrund-Push ist aktiv.', sheetToggle: 'Panelgröße ändern',
+  areaStep1: '1/3 Regionen', areaStep2: '2/3 Bezirke', areaStep3: '3/3 Stadtteile', estLeft: 'noch ~{n}s',
 }
 
 export const EXTRA: Record<Lang, D> = { en, sv, tr: tr_, ar, es, fr, de }
