@@ -1,3 +1,13 @@
 name = "newzlocal-proxy"
 main = "index.js"
-compatibility_date = "2026-10-01"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Optional Web Push background alerts:
+# 1. Create KV namespace: `npx wrangler kv namespace create SUBS_KV` and bind `SUBS_KV` below
+# 2. Set secrets: `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_JWK`
+# [[kv_namespaces]]
+# binding = "SUBS_KV"
+# id = "<your-kv-namespace-id>"
