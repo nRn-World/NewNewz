@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import {
+  apkDownloadUrl,
+  notifyViaNativeAndroid,
+  syncNativeAndroidFavorites,
+} from '../androidBridge'
 import { type Area, type Areas, bounds, inside, kidsOf, labelPoint, link, norm } from '../areas'
 import { toggleSavedItem } from '../bookmarks'
 import { clusterArticles } from '../cluster'
@@ -630,5 +635,65 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
       {},
     )
     expect(httpBlocked.status).toBe(403)
+  })
+
+  it('wires native Android APK JavaScript bridge and Worker /push/poll endpoint for favourite alerts', async () => {
+    expect(apkDownloadUrl()).toMatch(/\/NewzLocal\.apk$/)
+
+    let syncedJson = ''
+    let notifiedArgs: string[] = []
+    const g = globalThis as unknown as {
+      window?: {
+        NewzLocalAndroid?: {
+          isAndroidApk: () => boolean
+          syncFavorites: (p: string) => void
+          notifyNow: (t: string, b: string, u: string, tag: string) => boolean
+        }
+      }
+    }
+    const prevWin = g.window
+    g.window = {
+      NewzLocalAndroid: {
+        isAndroidApk: () => true,
+        syncFavorites: (p: string) => { syncedJson = p },
+        notifyNow: (t: string, b: string, u: string, tag: string) => {
+          notifiedArgs = [t, b, u, tag]
+          return true
+        },
+      },
+    }
+    try {
+      const fav: Place = {
+        lat: 59.409,
+        lon: 17.927,
+        cc: 'SE',
+        parts: [
+          { level: 'district', name: 'Husby' },
+          { level: 'city', name: 'Stockholm' },
+        ],
+      }
+      expect(syncNativeAndroidFavorites([fav], 'sv', {}, 'https://newzlocal-proxy.bynrnworld.workers.dev')).toBe(true)
+      const parsed = JSON.parse(syncedJson) as { lang: string; places: { label: string; hash: string }[] }
+      expect(parsed.lang).toBe('sv')
+      expect(parsed.places[0].label).toContain('Husby')
+      expect(parsed.places[0].hash.length).toBeGreaterThan(4)
+
+      expect(notifyViaNativeAndroid('📰 Husby', 'Ny händelse i Husby', './#p=abc', 'husby')).toBe(true)
+      expect(notifiedArgs[0]).toBe('📰 Husby')
+      expect(notifiedArgs[2]).toBe('https://nrnworld.one/NewzLocal/#p=abc')
+    } finally {
+      g.window = prevWin
+    }
+
+    const pollEmpty = await worker.fetch(
+      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/push/poll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ places: [] }),
+      }),
+      {},
+    )
+    expect(pollEmpty.status).toBe(200)
+    expect(await pollEmpty.json()).toEqual({ places: [] })
   })
 })

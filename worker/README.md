@@ -6,6 +6,7 @@ All edge backend logic for **NewzLocal** lives in this zero-dependency Cloudflar
 - **Background Mobile Web Push (`/push/*`):**
   - `GET /push/vapid` — Automatically generates and persists an ECDSA P-256 VAPID keypair inside Cloudflare KV (`SUBS_KV`) when custom VAPID secrets are not configured
   - `POST /push/subscribe` — Stores/updates encrypted push subscriptions, watched places (with `alertNews` / `alertForum` flags), topic filters, and quiet hours
+  - `POST /push/poll` — Stateless edge polling endpoint consumed by the native Android APK's background `JobScheduler` (`FavoriteNewsJobService`) to deliver native Android lock-screen notifications for watched favourites
   - `POST /push/test` — Sends an immediate encrypted RFC 8291 `aes128gcm` test notification to verify mobile delivery
   - `scheduled()` (`*/5 * * * *`) — Checks watched addresses, neighbourhoods, cities, and countries every 5 minutes for **both** new news articles and new forum discussions
 

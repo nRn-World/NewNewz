@@ -1,5 +1,5 @@
 // Service worker: offline app shell + Web Push background notifications for saved addresses, cities & countries.
-const CACHE = 'newzlocal-v3'
+const CACHE = 'newzlocal-v4'
 const PRECACHE = ['./', 'manifest.webmanifest', 'favicon.svg', 'icons/icon-192.png']
 
 self.addEventListener('install', (e) => {
@@ -18,7 +18,14 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const u = new URL(e.request.url)
-  if (e.request.method !== 'GET' || u.origin !== location.origin || /\/(gn|bn|rd|fb|gnews|nd|push|meta|eksi|meneame)\//.test(u.pathname)) return
+  if (
+    e.request.method !== 'GET' ||
+    u.origin !== location.origin ||
+    /\.apk$/i.test(u.pathname) ||
+    /\/(gn|bn|rd|fb|gnews|nd|push|meta|eksi|meneame|police-feed)(\/|$)/.test(u.pathname)
+  ) {
+    return
+  }
 
   if (e.request.mode === 'navigate') {
     e.respondWith(

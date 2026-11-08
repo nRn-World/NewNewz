@@ -63,6 +63,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
       - run: npm ci
       - run: npm run lint
       - run: npm test
@@ -71,6 +75,36 @@ jobs:
           VITE_PROXY_URL: ${{ vars.VITE_PROXY_URL || vars.VITE_API_URL || needs.worker.outputs.worker_url }}
           VITE_GN_URL: ${{ vars.VITE_GN_URL }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+      - name: Build & sign Android APK (NewzLocal.apk)
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SECRET_KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          KS_B64="$SECRET_KS_B64"
+          if [ -z "$KS_B64" ] && [ -n "$CF_TOKEN" ]; then
+            ACCT_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts?per_page=5" | jq -r '.result[0].id // empty' || true)
+            if [ -z "$ACCT_ID" ]; then
+              ACCT_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/memberships?per_page=5" | jq -r '.result[0].account.id // empty' || true)
+            fi
+            if [ -n "$ACCT_ID" ]; then
+              KV_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[]? | select(.title == "newzlocal-subs") | .id' | head -n 1 || true)
+              if [ -n "$KV_ID" ]; then
+                EXISTING=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces/$KV_ID/values/android_keystore_p12_b64" || true)
+                if [ -n "$EXISTING" ]; then
+                  KS_B64="$EXISTING"
+                  echo "Loaded persistent Android APK keystore from SUBS_KV"
+                else
+                  TMP_P12=$(mktemp -u).p12
+                  keytool -genkeypair -keystore "$TMP_P12" -storetype PKCS12 -storepass newzlocal -keypass newzlocal -alias newzlocal -keyalg RSA -keysize 2048 -validity 10950 -dname "CN=NewzLocal, O=nRn World, C=SE"
+                  KS_B64=$(base64 -w 0 "$TMP_P12")
+                  rm -f "$TMP_P12"
+                  curl -sf -X PUT -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: text/plain" --data "$KS_B64" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces/$KV_ID/values/android_keystore_p12_b64" >/dev/null || true
+                  echo "Created and stored persistent Android APK keystore in SUBS_KV"
+                fi
+              fi
+            fi
+          fi
+          ANDROID_KEYSTORE_B64="$KS_B64" bash android/build-apk.sh dist
       - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
