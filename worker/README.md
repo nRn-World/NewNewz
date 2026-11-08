@@ -1,16 +1,23 @@
-# Cloudflare Worker — Snabbguide (2 minuter)
+# NewzLocal Cloudflare Worker — Quick Setup Guide
 
-All backend-logik för NewzLocal (Google News `/gn`, Bing `/bn`, Reddit `/rd`, Flashback `/fb`, Ekşi Sözlük `/eksi`, Menéame `/meneame`, Reader-kort `/meta` samt Web Push-notiser `/push/*`) ligger samlad i denna enda Cloudflare Worker (`worker/`).
+All edge backend logic for **NewzLocal** lives in this zero-dependency Cloudflare Worker (`worker/`):
 
-## Alternativ A: Automatisk deploy via GitHub Actions (rekommenderas)
+- **CORS Proxy Routes:** Bing News (`/bn`), Google News (`/gn`), Reddit (`/rd`), Flashback (`/fb`), Ekşi Sözlük (`/eksi`), Menéame (`/meneame`), and inline Reader metadata (`/meta`)
+- **Background Mobile Web Push (`/push/*`):**
+  - `GET /push/vapid` — Automatically generates and persists an ECDSA P-256 VAPID keypair inside Cloudflare KV (`SUBS_KV`) when custom VAPID secrets are not configured
+  - `POST /push/subscribe` — Stores/updates encrypted push subscriptions, watched places (with `alertNews` / `alertForum` flags), topic filters, and quiet hours
+  - `POST /push/test` — Sends an immediate encrypted RFC 8291 `aes128gcm` test notification to verify mobile delivery
+  - `scheduled()` (`*/5 * * * *`) — Checks watched addresses, neighbourhoods, cities, and countries every 5 minutes for **both** new news articles and new forum discussions
 
-1. Logga in på **[Cloudflare Dashboard → API Tokens](https://dash.cloudflare.com/profile/api-tokens)**.
-2. Klicka **Create Token** → välj mallen **Edit Cloudflare Workers** → kopiera din token.
-3. Öppna ditt GitHub-repo: **[Settings → Secrets and variables → Actions](https://github.com/nRn-World/NewzLocal/settings/secrets/actions)**:
-   - Under fliken **Secrets**: skapa `CLOUDFLARE_API_TOKEN` med din token.
-   - Kör sedan workflown **Deploy Cloudflare Worker** under fliken **Actions** — den publicerar `newzlocal-proxy.<ditt-subdomän>.workers.dev`.
-4. Under fliken **Variables** (bredvid Secrets):
-   - Skapa `VITE_PROXY_URL` = `https://newzlocal-proxy.<ditt-subdomän>.workers.dev`
-   - Skapa `VITE_GN_URL` = `https://newzlocal-proxy.<ditt-subdomän>.workers.dev/gn/rss/search`
+## Automated Deployment via GitHub Actions (Recommended)
 
-*(Du kan även klistra in din Worker-URL direkt inne i NewzLocal under kugghjulet/källinställningarna för att testa den direkt i webbläsaren utan ombyggnad!)*
+1. Open **[Cloudflare Dashboard → API Tokens](https://dash.cloudflare.com/profile/api-tokens)**.
+2. Click **Create Token** → select the **Edit Cloudflare Workers** template (ensuring **Workers Scripts: Edit** and **Workers KV Storage: Edit** permissions are included) → copy your token.
+3. In your GitHub repository, open **Settings → Secrets and variables → Actions**:
+   - Under **Secrets**, add `CLOUDFLARE_API_TOKEN` with your token.
+4. Pushing to `main` (or running the **Deploy Cloudflare Worker** workflow) automatically:
+   - Finds or creates the `newzlocal-subs` KV namespace and binds it as `SUBS_KV`
+   - Deploys `newzlocal-proxy` with its 5-minute cron trigger
+   - Passes the deployed Worker URL into the frontend build (`VITE_PROXY_URL`)
+
+> Licensed under the [NewzLocal Non-Commercial Educational License (NNEL) v1.1](../LICENSE). For any commercial or service-licensing inquiries, contact **[bynrnworld@gmail.com](mailto:bynrnworld@gmail.com)**.
