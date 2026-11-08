@@ -10,11 +10,14 @@ const KEYED = {
   '/gnews': ['https://gnews.io/api/v4', 'GNEWS_KEY', 'apikey'],
   '/nd': ['https://newsdata.io/api/1', 'NEWSDATA_KEY', 'apikey'],
 }
-const DEFAULT_ALLOWED = ['https://nrnworld.one', 'https://nrn-world.github.io', 'http://localhost:5173', 'http://localhost:4173']
+const DEFAULT_ALLOWED = ['https://nrnworld.one', 'https://www.nrnworld.one', 'https://nrn-world.github.io', 'http://localhost:5173', 'http://localhost:4173']
 
-function getAllowed(env) {
+function isAllowedOrigin(origin, env) {
+  if (!origin) return true
   const extra = (env?.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
-  return [...DEFAULT_ALLOWED, ...extra]
+  if ([...DEFAULT_ALLOWED, ...extra].includes(origin)) return true
+  if (/^https:\/\/[a-z0-9-]+\.e2b\.app$/i.test(origin)) return true
+  return false
 }
 
 const enc = new TextEncoder()
@@ -125,11 +128,10 @@ async function fetchLatestBingRss(place) {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url)
-    const allowed = getAllowed(env)
     const origin = req.headers.get('Origin') ?? ''
-    const originOk = !origin || allowed.includes(origin)
+    const originOk = isAllowedOrigin(origin, env)
     const cors = {
-      'Access-Control-Allow-Origin': allowed.includes(origin) ? origin : allowed[0],
+      'Access-Control-Allow-Origin': origin && originOk ? origin : DEFAULT_ALLOWED[0],
       Vary: 'Origin',
     }
 
@@ -188,7 +190,7 @@ export default {
     // --- Keyed news APIs ---
     const kp = Object.keys(KEYED).find((p) => url.pathname.startsWith(p + '/'))
     if (kp && req.method === 'GET') {
-      if (!allowed.includes(origin)) return new Response('Forbidden', { status: 403, headers: cors })
+      if (!origin || !originOk) return new Response('Forbidden', { status: 403, headers: cors })
       const [base, secret, param] = KEYED[kp]
       if (!env[secret]) return new Response('API key not configured', { status: 503, headers: cors })
       const target = new URL(base + url.pathname.slice(kp.length))
