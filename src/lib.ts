@@ -5,6 +5,8 @@ import { lemmyDiscussions, localSubreddits, regionalDiscussions } from './forums
 import { topicsOf } from './topics'
 import { encodePlace } from './urlState'
 
+const DEFAULT_WORKER_URL = 'https://newzlocal-proxy.bynrnworld.workers.dev'
+
 function resolveApiBase(): string {
   const fromEnv = (import.meta.env.VITE_PROXY_URL || import.meta.env.VITE_API_URL) as string | undefined
   if (fromEnv) return fromEnv.replace(/\/+$/, '')
@@ -12,6 +14,7 @@ function resolveApiBase(): string {
     const custom = localStorage.getItem('newzlocal.workerUrl')?.trim()
     if (custom && /^https:\/\/[a-z0-9.-]+/i.test(custom)) return custom.replace(/\/+$/, '')
   } catch { /* ignore */ }
+  if (typeof window !== 'undefined') return DEFAULT_WORKER_URL
   return ''
 }
 
@@ -279,6 +282,7 @@ const interval = (when: string) => {
 }
 
 function parseGoogleRssXml(xmlText: string, lang: string): Article[] {
+  if (!/<rss\b|<channel\b|<feed\b/i.test(xmlText)) throw new Error('err.source')
   const doc = new DOMParser().parseFromString(xmlText, 'text/xml')
   if (doc.querySelector('parsererror')) throw new Error('err.source')
   const seen = new Set<string>()
@@ -342,8 +346,9 @@ async function bingHeadlines(query: string, country: string, when: string, signa
     .filter((a) => a.url && !seen.has(a.title) && seen.add(a.title))
 }
 
-// Google News RSS via VITE_GN_URL or /gn proxy, with automatic browser-direct CORS failover when no backend proxy is reachable.
+// Google News RSS via VITE_GN_URL or /gn proxy, with automatic browser-direct CORS failover when /gn is unavailable.
 const GN_ENV = import.meta.env.VITE_GN_URL as string | undefined
+let gnProxyDown = API.includes('.workers.dev') && !GN_ENV
 
 async function googleHeadlinesBrowserCors(targetRssUrl: string, lang: string, signal?: AbortSignal): Promise<Article[]> {
   const bridges = [
@@ -372,15 +377,15 @@ async function googleHeadlines(query: string, country: string, when: string, sig
   const qs = `q=${encodeURIComponent(q)}&hl=${encodeURIComponent(ed.hl)}&gl=${ed.cc}&ceid=${encodeURIComponent(ed.ceid)}`
   const canonicalRss = `https://news.google.com/rss/search?${qs}`
 
-  if (GN_ENV || !isLocalProxyBlocked()) {
+  if (GN_ENV || (!gnProxyDown && !isLocalProxyBlocked())) {
     try {
       const base = GN_ENV ?? `${API}/gn/rss/search`
       const r = await fetch(`${base}?${qs}`, { cache: 'no-store', signal: withTimeout(signal, GN_ENV || API ? 5000 : 2200) })
       if (r.ok) return parseGoogleRssXml(await r.text(), ed.lang)
-      if (!GN_ENV && (r.status === 404 || r.status >= 500)) markLocalProxyDown()
+      if (!GN_ENV) gnProxyDown = true
     } catch (e) {
       if (signal?.aborted) throw e
-      if (!GN_ENV) markLocalProxyDown()
+      if (!GN_ENV) gnProxyDown = true
     }
   }
 
@@ -446,16 +451,13 @@ async function headlines(query: string, country: string, when: string, signal?: 
     if (combined.length || settled.some((s) => s.status === 'fulfilled')) return combined
     throw new Error('err.source')
   }
-  try {
-    return await googleHeadlines(query, country, when, signal)
-  } catch (e) {
-    if (signal?.aborted) throw e
-  }
-  try {
-    return await bingHeadlines(query, country, when, signal)
-  } catch (e) {
-    if (signal?.aborted) throw e
-  }
+  const settled = await Promise.allSettled([
+    bingHeadlines(query, country, when, signal),
+    googleHeadlines(query, country, when, signal),
+  ])
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  const combined = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
+  if (combined.length) return combined
   return gdeltHeadlines(query, country, when, signal)
 }
 
