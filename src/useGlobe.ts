@@ -20,6 +20,12 @@ type Cur = Ctx & { mode: 1 | 2 | 3; feats: Area[]; sel?: string; state?: string;
 
 const SNAP_RATIO: Record<SheetSnap, number> = { peek: 0.16, half: 0.5, full: 0.88 }
 
+function computeStartZoom() {
+  const w = window.innerWidth
+  const free = w > 700 ? Math.min(w - 440, window.innerHeight) : Math.min(w, window.innerHeight * 0.5)
+  return Math.max(0.5, Math.log2((0.9 * free) / 163))
+}
+
 export function useGlobe({
   lang,
   mapMode,
@@ -427,16 +433,42 @@ export function useGlobe({
     [drawPieces, drawPins],
   )
 
+  /** Resets the 3D globe, markers, polygons, and camera back to the initial first-open start screen. */
+  const resetGlobe = useCallback(() => {
+    cancelAreas()
+    pinRef.current?.remove()
+    pinRef.current = null
+    curRef.current = null
+    hovRef.current = undefined
+    heatRef.current = {}
+    setArea(null)
+    setHeatEntries([])
+    drawPins([], '')
+
+    const m = mapRef.current
+    if (!m) return
+    const emptyFc = { type: 'FeatureCollection', features: [] } as never
+    ;(m.getSource('areas') as maplibregl.GeoJSONSource | undefined)?.setData(emptyFc)
+    ;(m.getSource('area-names') as maplibregl.GeoJSONSource | undefined)?.setData(emptyFc)
+    m.getCanvas().style.cursor = ''
+
+    spinRef.current = false
+    const z = computeStartZoom()
+    if (m.getZoom() < 3 && Math.abs(m.getPitch()) < 1) {
+      m.easeTo({ center: [25, 35], zoom: z, pitch: 0, bearing: 0, duration: 700 })
+      spinRef.current = true
+    } else {
+      m.flyTo({ center: [25, 35], zoom: z, pitch: 0, bearing: 0, duration: 1300 })
+      m.once('moveend', () => {
+        if (!pinRef.current && !curRef.current) spinRef.current = true
+      })
+    }
+  }, [cancelAreas, drawPins])
+
   useEffect(() => {
     let m: maplibregl.Map | undefined
     let timer: ReturnType<typeof setInterval>
     let dead = false
-
-    const startZoom = () => {
-      const w = window.innerWidth
-      const free = w > 700 ? Math.min(w - 440, window.innerHeight) : Math.min(w, window.innerHeight * 0.5)
-      return Math.max(0.5, Math.log2((0.9 * free) / 163))
-    }
 
     const onResize = () => {
       if (m) applyPadding(m)
@@ -482,7 +514,7 @@ export function useGlobe({
           container: boxRef.current,
           style: style as maplibregl.StyleSpecification,
           center: [25, 35],
-          zoom: startZoom(),
+          zoom: computeStartZoom(),
           maxPitch: 75,
           attributionControl: { compact: true },
         })
@@ -597,5 +629,6 @@ export function useGlobe({
     focusCrumb,
     focusStreet,
     updateHeat,
+    resetGlobe,
   }
 }
