@@ -12,7 +12,35 @@ concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  worker:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      worker_url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Cloudflare token
+        id: check
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$CF_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Deploy Cloudflare Worker
+        id: deploy
+        if: steps.check.outputs.enabled == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+
   build:
+    needs: [worker]
+    if: always() && (needs.worker.result == 'success' || needs.worker.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,13 +53,14 @@ jobs:
       - run: npm test
       - run: npm run build
         env:
-          VITE_PROXY_URL: ${{ vars.VITE_PROXY_URL || vars.VITE_API_URL }}
+          VITE_PROXY_URL: ${{ vars.VITE_PROXY_URL || vars.VITE_API_URL || needs.worker.outputs.worker_url }}
           VITE_GN_URL: ${{ vars.VITE_GN_URL }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
       - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
