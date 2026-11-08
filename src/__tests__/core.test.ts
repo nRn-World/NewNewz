@@ -10,6 +10,7 @@ import {
   clampDate,
   flashbackCreated,
   inQuiet,
+  matchesTarget,
   mentionsPlace,
   parseBingRssXml,
   parseFlashbackDate,
@@ -22,6 +23,14 @@ import {
   target,
   toPlace,
 } from '../lib'
+import {
+  directPoliceFeedsFor,
+  isOfficialPoliceUrl,
+  parsePoliceFeedXml,
+  parsePolisenDate,
+  parsePolisenEventsJson,
+  policeSearchQueries,
+} from '../police'
 import { weatherSymbol } from '../weather'
 import { circle, rings } from '../overpass'
 import { STOP, hotWords, topicCounts, topicsOf } from '../topics'
@@ -490,5 +499,136 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
       { GNEWS_KEY: 'secret' },
     )
     expect(keyedBlocked.status).toBe(403)
+  })
+
+  it('parses Polisen API events (single-digit hours, summary matching for districts like Husby, and non-leakage)', () => {
+    expect(+parsePolisenDate('2026-11-04 6:52:17 +01:00')).toBe(+new Date('2026-11-04T06:52:17+01:00'))
+    expect(+parsePolisenDate('2026-11-08 14:25:56 +01:00')).toBe(+new Date('2026-11-08T14:25:56+01:00'))
+
+    const sampleJson = JSON.stringify([
+      {
+        id: 658901,
+        datetime: '2026-11-08 7:05:12 +01:00',
+        name: '08 november 06.48, Trafikkontroll, Stockholm',
+        summary: 'Fordon och förare kontrollerades i Husby utan anmärkning.',
+        url: '/aktuellt/handelser/2026/november/8/08-november-06.48-trafikkontroll-stockholm/',
+        type: 'Trafikkontroll',
+        location: { name: 'Stockholms län', gps: '59.409,17.927' },
+      },
+      {
+        id: 658829,
+        datetime: '2026-11-08 14:25:56 +01:00',
+        name: '08 november 11.19, Häleri, Stockholm',
+        summary: 'Misstänkt hälare stoppad av polis på Södermalm.',
+        url: '/aktuellt/handelser/2026/november/8/08-november-11.19-haleri-stockholm/',
+        type: 'Häleri',
+        location: { name: 'Stockholms län', gps: '59.315,18.071' },
+      },
+      {
+        id: 658800,
+        datetime: '2026-11-08 22:00:00 +01:00',
+        name: '08 november 22.00, Övrigt, Stockholms län',
+        summary: 'Mellan kl 22 och 06 finns ingen presstalesperson i tjänst.',
+        url: '/aktuellt/handelser/2026/november/8/ovrigt/',
+        type: 'Övrigt',
+        location: { name: 'Stockholms län' },
+      },
+    ])
+
+    const items = parsePolisenEventsJson(sampleJson)
+    // Off-duty housekeeping notice filtered out
+    expect(items).toHaveLength(2)
+    expect(items[0].police).toBe(true)
+    expect(items[0].url).toContain('https://polisen.se/aktuellt/handelser/')
+    expect(topicsOf(items[0].title, items[0].police)).toContain('Police')
+
+    const husbyPlace: Place = {
+      lat: 59.409,
+      lon: 17.927,
+      cc: 'SE',
+      parts: [
+        { level: 'district', name: 'Husby' },
+        { level: 'city', name: 'Stockholm' },
+        { level: 'country', name: 'Sverige' },
+      ],
+    }
+    const husbyTarget = target(husbyPlace, 0)
+    const husbyMatched = items.filter((a) => matchesTarget(a, husbyTarget))
+    expect(husbyMatched).toHaveLength(1)
+    expect(husbyMatched[0].title).toContain('Husby')
+  })
+
+  it('supports Phuket & Thai-script police feeds, preserves Thai vowel/tone marks, filters procurement noise, and blocks SSRF on /police-feed', async () => {
+    expect(norm('ภูเก็ต')).toBe('ภูเก็ต')
+    const phuketPlace: Place = {
+      lat: 7.8804,
+      lon: 98.3923,
+      cc: 'TH',
+      parts: [
+        { level: 'city', name: 'Phuket' },
+        { level: 'country', name: 'Thailand' },
+      ],
+    }
+    const phuketAliases = placeAliases({ level: 'city', name: 'Phuket' }, 'TH')
+    expect(phuketAliases).toContain('ภูเก็ต')
+
+    const feeds = directPoliceFeedsFor(phuketPlace, 0)
+    expect(feeds.map((f) => f.url)).toContain('https://phuket.tourist.police.go.th/feed/')
+    expect(feeds.map((f) => f.url)).toContain('https://phuket.police.go.th/feed/')
+    expect(feeds.map((f) => f.url)).toContain('https://saranitet.police.go.th/feed/')
+
+    const queries = policeSearchQueries('Phuket', phuketAliases, 'TH')
+    expect(queries.some((q) => q.query.includes('site:police.go.th'))).toBe(true)
+    expect(queries.some((q) => q.query.includes('ภูเก็ต'))).toBe(true)
+
+    const phuketTouristRss = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+      <item>
+        <title>ตำรวจท่องเที่ยวภูเก็ตช่วยปฐมพยาบาลนักท่องเที่ยวต่างชาติ</title>
+        <link>https://phuket.tourist.police.go.th/first-aid-tourist/</link>
+        <pubDate>Sun, 08 Nov 2026 08:15:00 +0000</pubDate>
+        <description><![CDATA[<p>สายตรวจตำรวจท่องเที่ยวภูเก็ตเข้าช่วยเหลือนักท่องเที่ยวบริเวณหาดป่าตอง</p>]]></description>
+        <content:encoded><![CDATA[<img src="https://static.xx.fbcdn.net/images/emoji.php/v9/t50/1/16/2757.png" /><img src="https://phuket.tourist.police.go.th/wp-content/uploads/2026/11/rescue.jpg" />]]></content:encoded>
+      </item>
+      <item>
+        <title>ประกาศประกวดราคาจ้างก่อสร้างอาคารที่ทำการด้วยวิธีประกวดราคาอิเล็กทรอนิกส์</title>
+        <link>https://phuket.police.go.th/procurement-tender/</link>
+        <pubDate>Sat, 07 Nov 2026 04:00:00 +0000</pubDate>
+        <description>จัดซื้อจัดจ้างประจำปี</description>
+      </item>
+    </channel></rss>`
+
+    const touristItems = parsePoliceFeedXml(phuketTouristRss, 'Phuket Tourist Police', 'th', 'Phuket ภูเก็ต')
+    expect(touristItems).toHaveLength(1)
+    expect(touristItems[0].police).toBe(true)
+    expect(touristItems[0].image).toBe('https://phuket.tourist.police.go.th/wp-content/uploads/2026/11/rescue.jpg')
+    expect(matchesTarget(touristItems[0], target(phuketPlace, 0))).toBe(true)
+
+    // Unrelated national Royal Thai Police item from Chiang Mai must NOT leak into Phuket
+    const nationalRss = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>
+      <item>
+        <title>ตำรวจภูธรจังหวัดเชียงใหม่แถลงผลการจับกุมเครือข่ายออนไลน์</title>
+        <link>https://saranitet.police.go.th/chiangmai-case/</link>
+        <pubDate>Sun, 08 Nov 2026 09:00:00 +0000</pubDate>
+        <description>แถลงข่าวที่จังหวัดเชียงใหม่</description>
+      </item>
+    </channel></rss>`
+    const natItems = parsePoliceFeedXml(nationalRss, 'Royal Thai Police', 'th', 'Thailand ประเทศไทย')
+    expect(matchesTarget(natItems[0], target(phuketPlace, 0))).toBe(false)
+
+    expect(isOfficialPoliceUrl('https://polisen.se/aktuellt/polisens-nyheter/')).toBe(true)
+    expect(isOfficialPoliceUrl('https://phuket.tourist.police.go.th/news/1')).toBe(true)
+    expect(isOfficialPoliceUrl('https://www.presseportal.de/blaulicht/pm/11530/12345')).toBe(true)
+    expect(isOfficialPoliceUrl('https://www.presseportal.de/wirtschaft/12345')).toBe(false)
+
+    const ssrfBlocked = await worker.fetch(
+      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/police-feed?url=https%3A%2F%2Fevil.example.com%2Ffeed'),
+      {},
+    )
+    expect(ssrfBlocked.status).toBe(403)
+    const httpBlocked = await worker.fetch(
+      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/police-feed?url=http%3A%2F%2Fpolisen.se%2Fapi%2Fevents'),
+      {},
+    )
+    expect(httpBlocked.status).toBe(403)
   })
 })

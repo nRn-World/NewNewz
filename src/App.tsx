@@ -637,7 +637,7 @@ export default function App() {
     const base = (onlyNew ? only!.items : res?.articles) ?? []
     const qNorm = norm(newsFilter)
     const filtered = base.filter((a) => {
-      if (topic && tab === 'news' && !topicsOf(a.orig ?? a.title).includes(topic)) return false
+      if (topic && tab === 'news' && !topicsOf(`${a.title} ${a.orig ?? ''}`, a.police).includes(topic)) return false
       if (qNorm) {
         const hay = norm(`${a.title} ${a.orig ?? ''} ${a.source} ${a.summary ?? ''} ${a.scopeTag ?? ''}`)
         if (!hay.includes(qNorm)) return false
@@ -1025,7 +1025,7 @@ export default function App() {
                       </a>
                       <small className="storymeta">
                         <span>
-                          {a.forum ? '◆ ' : ''}
+                          {a.forum ? '◆ ' : a.police ? <span className="police-tag" title={t('tPolice')}>🛡 </span> : ''}
                           {a.source} · {a.approx ? '≈ ' : ''}
                           {ago(a.date, lang)}
                           {!!a.also?.length && (

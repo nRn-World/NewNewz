@@ -198,6 +198,55 @@ function buildPlaceQueries(place) {
 async function checkNewsForPlace(place, queries, mustKey) {
   const cc = (place.cc || 'US').toUpperCase()
   const out = []
+
+  // Direct Swedish Police Open Data API check for Sweden (`polisen.se/api/events`)
+  if (cc === 'SE') {
+    try {
+      const pr = await fetch('https://polisen.se/api/events', {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        signal: AbortSignal.timeout(5500),
+      })
+      if (pr.ok) {
+        const events = await pr.json()
+        if (Array.isArray(events)) {
+          for (const ev of events.slice(0, 120)) {
+            const hay = `${ev?.name ?? ''} ${ev?.summary ?? ''} ${ev?.location?.name ?? ''}`
+            if (ev?.url && ev?.name && hasPlaceWord(hay, mustKey)) {
+              out.push({
+                title: `🛡 Polisen · ${ev.type ? `${ev.type}: ${ev.summary || ev.name}` : ev.name}`,
+                url: ev.url.startsWith('http') ? ev.url : `https://polisen.se${ev.url}`,
+                kind: 'news',
+              })
+              if (out.length >= 4) break
+            }
+          }
+        }
+      }
+    } catch { /* fallback to RSS */ }
+  }
+
+  // Direct Phuket Tourist Police RSS check when watching Phuket
+  if (cc === 'TH' && (mustKey === 'phuket' || (place.lat >= 7.7 && place.lat <= 8.22 && place.lon >= 98.2 && place.lon <= 98.48))) {
+    try {
+      const tr = await fetch('https://phuket.tourist.police.go.th/feed/', {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        signal: AbortSignal.timeout(5500),
+      })
+      if (tr.ok) {
+        const xml = await tr.text()
+        for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+          const b = m[1]
+          const t = (b.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/)?.[1] ?? b.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '').trim()
+          const l = (b.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? '').trim()
+          if (t && l) {
+            out.push({ title: `🛡 Phuket Police · ${t}`, url: l, kind: 'news' })
+            if (out.length >= 3) break
+          }
+        }
+      }
+    } catch { /* fallback to RSS */ }
+  }
+
   for (const q of queries) {
     try {
       const r = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent(q)}&format=rss&cc=${cc}&sortbydate=1`, {
@@ -436,6 +485,70 @@ export default {
         })
       } catch {
         return new Response('{}', { headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+    }
+
+    // --- Official Government & Local Police JSON/RSS Feed Proxy (strict hostname allowlist) ---
+    if (url.pathname === '/police-feed' && req.method === 'GET') {
+      const targetStr = url.searchParams.get('url') ?? ''
+      let parsed
+      try {
+        parsed = new URL(targetStr)
+      } catch {
+        return new Response('Invalid URL', { status: 400, headers: cors })
+      }
+      const host = parsed.hostname.toLowerCase()
+      const allowedPoliceHost =
+        parsed.protocol === 'https:' &&
+        !parsed.username &&
+        !parsed.password &&
+        !parsed.port &&
+        [
+          /(^|\.)polisen\.se$/i,
+          /(^|\.)politiet\.no$/i,
+          /^via\.ritzau\.dk$/i,
+          /(^|\.)politi\.dk$/i,
+          /(^|\.)poliisi\.fi$/i,
+          /(^|\.)politie\.nl$/i,
+          /(^|\.)police\.go\.th$/i,
+          /(^|\.)royalthaipolice\.go\.th$/i,
+          /(^|\.)touristpolice\.go\.th$/i,
+          /(^|\.)cib\.go\.th$/i,
+          /(^|\.)police\.uk$/i,
+          /(^|\.)police\.govt\.nz$/i,
+          /(^|\.)mypolice\.qld\.gov\.au$/i,
+          /(^|\.)police\.(nsw|vic|wa|sa|tas)\.gov\.au$/i,
+          /(^|\.)afp\.gov\.au$/i,
+          /(^|\.)rcmp-grc\.gc\.ca$/i,
+          /(^|\.)europol\.europa\.eu$/i,
+          /(^|\.)interpol\.int$/i,
+        ].some((re) => re.test(host))
+
+      if (!allowedPoliceHost) {
+        return new Response('Forbidden police host', { status: 403, headers: cors })
+      }
+      try {
+        const r = await fetch(parsed, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPoliceReader/1.0; +https://nrnworld.one/NewzLocal/)',
+            Accept: 'application/json, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+          },
+          cf: { cacheTtl: 120, cacheEverything: true },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!r.ok) {
+          return new Response('Upstream police feed error', { status: 502, headers: { ...cors, 'Cache-Control': 'no-store' } })
+        }
+        return new Response(r.body, {
+          status: 200,
+          headers: {
+            ...cors,
+            'Content-Type': r.headers.get('Content-Type') ?? 'text/plain; charset=utf-8',
+            'Cache-Control': 'public, max-age=120',
+          },
+        })
+      } catch {
+        return new Response('Upstream police feed timeout', { status: 502, headers: { ...cors, 'Cache-Control': 'no-store' } })
       }
     }
 

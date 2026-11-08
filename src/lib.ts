@@ -2,6 +2,7 @@ import { norm } from './areas'
 import { clusterArticles, type RelatedItem } from './cluster'
 import { editionFor, wordsFor } from './editions'
 import { lemmyDiscussions, localSubreddits, regionalDiscussions } from './forums'
+import { fetchDirectPoliceFeeds, isOfficialPoliceUrl, policeSearchQueries } from './police'
 import { STOP, topicsOf } from './topics'
 import { encodePlace } from './urlState'
 
@@ -41,6 +42,7 @@ export type Article = {
   summary?: string
   image?: string
   forum?: boolean
+  police?: boolean
   orig?: string
   approx?: boolean
   lang?: string
@@ -346,18 +348,22 @@ export function parseGoogleRssXml(xmlText: string, lang: string): Article[] {
     if (!doc.querySelector('parsererror')) {
       return [...doc.querySelectorAll('item')]
         .map((i) => {
-          const source = i.querySelector('source')?.textContent ?? ''
+          const srcEl = i.querySelector('source')
+          const source = srcEl?.textContent ?? ''
+          const srcUrl = srcEl?.getAttribute('url') ?? ''
           const raw = i.querySelector('title')?.textContent ?? ''
           const title = source && raw.endsWith(` - ${source}`) ? raw.slice(0, -source.length - 3) : raw
           const desc = i.querySelector('description')?.textContent ?? ''
+          const url = i.querySelector('link')?.textContent ?? ''
           return {
-            url: i.querySelector('link')?.textContent ?? '',
+            url,
             title,
             summary: cleanSnippet(desc, title, source),
             image: extractItemImage(i),
             source,
             date: new Date(i.querySelector('pubDate')?.textContent ?? ''),
             lang,
+            ...(isOfficialPoliceUrl(url) || isOfficialPoliceUrl(srcUrl) ? { police: true } : {}),
           }
         })
         .filter((a) => a.url && !seen.has(a.title) && seen.add(a.title))
@@ -367,6 +373,7 @@ export function parseGoogleRssXml(xmlText: string, lang: string): Article[] {
   for (const m of xmlText.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
     const b = m[1]
     const source = xmlTag(b, 'source')
+    const srcUrl = /<source\b[^>]*\burl=["']([^"']+)["']/i.exec(b)?.[1] ?? ''
     const raw = xmlTag(b, 'title')
     const title = source && raw.endsWith(` - ${source}`) ? raw.slice(0, -source.length - 3) : raw
     const desc = xmlTag(b, 'description')
@@ -380,6 +387,7 @@ export function parseGoogleRssXml(xmlText: string, lang: string): Article[] {
       source,
       date: new Date(xmlTag(b, 'pubDate')),
       lang,
+      ...(isOfficialPoliceUrl(url) || isOfficialPoliceUrl(srcUrl) ? { police: true } : {}),
     })
   }
   return items
@@ -407,6 +415,7 @@ export function parseBingRssXml(xmlText: string, lang: string): Article[] {
             source,
             date: new Date(i.querySelector('pubDate')?.textContent ?? ''),
             lang,
+            ...(isOfficialPoliceUrl(url) ? { police: true } : {}),
           }
         })
         .filter((a) => a.url && !seen.has(a.title) && seen.add(a.title))
@@ -430,6 +439,7 @@ export function parseBingRssXml(xmlText: string, lang: string): Article[] {
       source,
       date: new Date(xmlTag(b, 'pubDate')),
       lang,
+      ...(isOfficialPoliceUrl(url) ? { police: true } : {}),
     })
   }
   return items
@@ -450,14 +460,16 @@ export function parseRss2JsonPayload(rawJson: string, lang: string): Article[] {
       const title = dashIdx > 8 ? rawTitle.slice(0, dashIdx).trim() : rawTitle
       const rawDate = (it.pubDate ?? '').trim()
       const isoDate = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(rawDate) ? `${rawDate.replace(' ', 'T')}Z` : rawDate
+      const url = (it.link ?? '').trim()
       return {
-        url: (it.link ?? '').trim(),
+        url,
         title,
         summary: cleanSnippet(it.description ?? '', title, source),
         image: it.thumbnail && /^https:\/\//i.test(it.thumbnail) ? it.thumbnail : undefined,
         source,
         date: new Date(isoDate),
         lang,
+        ...(isOfficialPoliceUrl(url) ? { police: true } : {}),
       }
     })
     .filter((a) => a.url && a.title && !isNaN(+a.date) && !seen.has(a.title) && seen.add(a.title))
@@ -754,16 +766,43 @@ const EXONYM_GROUPS: string[][] = [
   ['venedig', 'venezia', 'venice'],
   ['florens', 'firenze', 'florence'],
   ['neapel', 'napoli', 'naples'],
-  ['aten', 'athens'],
+  ['aten', 'athens', 'αθηνα'],
   ['lissabon', 'lisboa', 'lisbon'],
   ['bryssel', 'brussels', 'bruxelles'],
   ['geneve', 'geneva'],
   ['prag', 'prague', 'praha'],
   ['warszawa', 'warsaw'],
-  ['moskva', 'moscow'],
-  ['kiev', 'kyiv'],
-  ['kairo', 'cairo'],
-  ['peking', 'beijing'],
+  ['moskva', 'moscow', 'москва'],
+  ['kiev', 'kyiv', 'київ'],
+  ['kairo', 'cairo', 'القاهرة'],
+  ['peking', 'beijing', '北京'],
+  ['tokyo', '東京'],
+  ['osaka', '大阪'],
+  ['kyoto', '京都'],
+  ['seoul', '서울'],
+  ['busan', '부산'],
+  ['dubai', 'دبي'],
+  ['abu dhabi', 'أبوظبي', 'ابوظبي'],
+  ['riyadh', 'الرياض'],
+  ['doha', 'الدوحة'],
+  // Thailand & Phuket local districts/stations (Thai <-> English)
+  ['phuket', 'ภูเก็ต'],
+  ['patong', 'ป่าตอง'],
+  ['karon', 'กะรน'],
+  ['kamala', 'กมลา'],
+  ['chalong', 'ฉลอง'],
+  ['thalang', 'ถลาง'],
+  ['rawai', 'ราไวย์'],
+  ['cherngtalay', 'choeng thale', 'เชิงทะเล'],
+  ['kata', 'กะตะ'],
+  ['bangkok', 'krung thep', 'กรุงเทพ', 'กรุงเทพมหานคร'],
+  ['pattaya', 'พัทยา'],
+  ['chiang mai', 'เชียงใหม่'],
+  ['krabi', 'กระบี่'],
+  ['koh samui', 'ko samui', 'เกาะสมุย', 'สมุย'],
+  ['hua hin', 'หัวหิน'],
+  ['thailand', 'ประเทศไทย'],
+  ['japan', '日本'],
   ['sverige', 'sweden'],
   ['norge', 'norway'],
   ['danmark', 'denmark'],
@@ -802,7 +841,7 @@ export function placeAliases(own: Part, cc?: string): string[] {
 
   const cNorm = norm(clean)
   for (const grp of EXONYM_GROUPS) {
-    if (grp.includes(cNorm)) {
+    if (grp.some((g) => norm(g) === cNorm)) {
       for (const alt of grp) set.add(alt)
     }
   }
@@ -894,7 +933,7 @@ export function target(place: Place, from: number) {
   return { own, cleanName, query, queries, key, aliases, parentAliases, mustMatchParent, fq }
 }
 
-function matchesTarget(a: Article, t: ReturnType<typeof target>): boolean {
+export function matchesTarget(a: Article, t: ReturnType<typeof target>): boolean {
   const hay = `${a.title} ${a.orig ?? ''} ${a.summary ?? ''}`
   if (!mentionsPlace(hay, t.aliases)) return false
   if (t.mustMatchParent && t.parentAliases.length > 0) {
@@ -1010,10 +1049,58 @@ export async function news(
 
   onProgress?.(28)
 
+  // Parallel official local & national police intelligence pipeline (direct government APIs/RSS + global police domain discovery)
+  const archiveMid = monthsBack > 0 ? Date.now() - monthsBack * 30.4 * 864e5 : 0
+  const archiveWin =
+    monthsBack > 0
+      ? `after:${day(new Date(archiveMid - 15 * 864e5))} before:${day(new Date(archiveMid + 15 * 864e5))}`
+      : ''
+
+  const policePromise = (async () => {
+    const tasks: Promise<void>[] = [
+      fetchDirectPoliceFeeds(place, from, API, signal)
+        .then((directItems) => {
+          const windowed =
+            monthsBack > 0
+              ? directItems.filter((a) => Math.abs(+a.date - archiveMid) <= 15 * 864e5)
+              : directItems
+          if (windowed.length) {
+            ok++
+            const matched = tagItems(windowed)
+            if (matched.length) {
+              lists.push(matched)
+              emit()
+            }
+          }
+        })
+        .catch(() => {}),
+    ]
+
+    if (deep) {
+      const pQueries = policeSearchQueries(primary.cleanName, primary.aliases, cc)
+      for (const pq of pQueries) {
+        tasks.push(
+          headlines(pq.query, pq.editionCc, archiveWin, signal)
+            .then((items) => {
+              ok++
+              const taggedPolice = pq.forcePoliceTag
+                ? items.map((a) => ({ ...a, police: true }))
+                : items
+              const matched = tagItems(taggedPolice)
+              if (matched.length) {
+                lists.push(matched)
+                emit()
+              }
+            })
+            .catch(() => {}),
+        )
+      }
+    }
+    await Promise.allSettled(tasks)
+  })()
+
   if (monthsBack > 0) {
-    const mid = Date.now() - monthsBack * 30.4 * 864e5
-    const w = `after:${day(new Date(mid - 15 * 864e5))} before:${day(new Date(mid + 15 * 864e5))}`
-    for (const q of primary.queries) await win(q, w)
+    for (const q of primary.queries) await win(q, archiveWin)
   } else if (!deep) {
     await win(primary.queries[0], '1d')
   } else {
@@ -1110,6 +1197,7 @@ export async function news(
     }
   }
 
+  await policePromise
   onProgress?.(95)
   if (!ok) throw new Error('err.source')
   const finalArticles = currentMerged()

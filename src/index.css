@@ -354,5 +354,7 @@ footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var
 /* Scope pill showing exact street match vs surrounding district/city cascade */
 .scopepill{display:inline-block;margin-inline-end:5px;padding:0 5px;border:1px solid var(--ink);background:var(--paper2);color:var(--ink);font:700 10.5px/1.35 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:.04em}
 .scopepill.exact{border-color:var(--red);background:var(--red);color:var(--paper)}
+.police-tag{font-style:normal;color:var(--ink)}
+
 
 

@@ -87,7 +87,7 @@ export default function Paper({ articles, place, date, pageWord, tabName, clipLa
         <h3><a href={a.url} target="_blank" rel="noopener noreferrer" draggable={false}>{a.title}</a></h3>
         {cls === 'banner' && a.summary && <p className="story-sum">{a.summary}</p>}
         <small>
-          {a.source}{a.also?.length ? ` (+${a.also.length})` : ''} · {a.approx ? '≈ ' : ''}{ago(a.date)}
+          {a.police ? '🛡 ' : ''}{a.source}{a.also?.length ? ` (+${a.also.length})` : ''} · {a.approx ? '≈ ' : ''}{ago(a.date)}
           {onClip && (
             <>
               {' · '}

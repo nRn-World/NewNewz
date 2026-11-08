@@ -4,7 +4,7 @@ import type { Lang } from './i18n'
 type D = Record<string, string>
 
 const en: D = {
-  tAll: 'All topics', tCrime: 'Crime', tTraffic: 'Traffic', tHousing: 'Housing', tSchools: 'Schools', tSport: 'Sport', tPolitics: 'Politics',
+  tAll: 'All topics', tPolice: 'Police', tCrime: 'Crime', tTraffic: 'Traffic', tHousing: 'Housing', tSchools: 'Schools', tSport: 'Sport', tPolitics: 'Politics',
   tBusiness: 'Business', tWeather: 'Weather', tAccident: 'Accidents & fire', tCulture: 'Culture', tHealth: 'Health',
   sumNow: 'Right now:', report: 'Neighbourhood report', repWeek: '{n} items in the last 7 days', repUsual: 'usual {n} per week',
   repAbove: 'More active than usual', repBelow: 'Quieter than usual', repNormal: 'About as usual', repTop: 'Most talked about', repHot: 'Busiest areas',
@@ -32,7 +32,7 @@ const en: D = {
 }
 
 const sv: D = {
-  tAll: 'Alla ämnen', tCrime: 'Brott', tTraffic: 'Trafik', tHousing: 'Bostäder', tSchools: 'Skolor', tSport: 'Sport', tPolitics: 'Politik',
+  tAll: 'Alla ämnen', tPolice: 'Polis', tCrime: 'Brott', tTraffic: 'Trafik', tHousing: 'Bostäder', tSchools: 'Skolor', tSport: 'Sport', tPolitics: 'Politik',
   tBusiness: 'Ekonomi', tWeather: 'Väder', tAccident: 'Olyckor & brand', tCulture: 'Kultur', tHealth: 'Hälsa',
   sumNow: 'Just nu:', report: 'Grannskapsrapport', repWeek: '{n} nyheter senaste 7 dagarna', repUsual: 'vanligt {n} per vecka',
   repAbove: 'Mer aktivt än vanligt', repBelow: 'Lugnare än vanligt', repNormal: 'Ungefär som vanligt', repTop: 'Mest omskrivet', repHot: 'Mest händelser',
@@ -60,7 +60,7 @@ const sv: D = {
 }
 
 const tr_: D = {
-  tAll: 'Tüm konular', tCrime: 'Suç', tTraffic: 'Trafik', tHousing: 'Konut', tSchools: 'Okullar', tSport: 'Spor', tPolitics: 'Siyaset',
+  tAll: 'Tüm konular', tPolice: 'Polis', tCrime: 'Suç', tTraffic: 'Trafik', tHousing: 'Konut', tSchools: 'Okullar', tSport: 'Spor', tPolitics: 'Siyaset',
   tBusiness: 'Ekonomi', tWeather: 'Hava', tAccident: 'Kazalar ve yangın', tCulture: 'Kultur', tHealth: 'Sağlık',
   sumNow: 'Şu an:', report: 'Mahalle raporu', repWeek: 'Son 7 günde {n} haber', repUsual: 'normalde haftada {n}',
   repAbove: 'Normalden hareketli', repBelow: 'Normalden sakin', repNormal: 'Her zamanki gibi', repTop: 'En çok konuşulan', repHot: 'En hareketli bölgeler',
@@ -88,7 +88,7 @@ const tr_: D = {
 }
 
 const ar: D = {
-  tAll: 'كل المواضيع', tCrime: 'جريمة', tTraffic: 'مرور', tHousing: 'سكن', tSchools: 'مدارس', tSport: 'رياضة', tPolitics: 'سياسة',
+  tAll: 'كل المواضيع', tPolice: 'الشرطة', tCrime: 'جريمة', tTraffic: 'مرور', tHousing: 'سكن', tSchools: 'مدارس', tSport: 'رياضة', tPolitics: 'سياسة',
   tBusiness: 'اقتصاد', tWeather: 'طقس', tAccident: 'حوادث وحرائق', tCulture: 'ثقافة', tHealth: 'صحة',
   sumNow: 'الآن:', report: 'تقرير الحي', repWeek: '{n} خبر في آخر 7 أيام', repUsual: 'المعتاد {n} أسبوعيًا',
   repAbove: 'أكثر نشاطًا من المعتاد', repBelow: 'أهدأ من المعتاد', repNormal: 'كالمعتاد', repTop: 'الأكثر تداولًا', repHot: 'أنشط المناطق',
@@ -116,7 +116,7 @@ const ar: D = {
 }
 
 const es: D = {
-  tAll: 'Todos los temas', tCrime: 'Sucesos', tTraffic: 'Tráfico', tHousing: 'Vivienda', tSchools: 'Colegios', tSport: 'Deportes', tPolitics: 'Política',
+  tAll: 'Todos los temas', tPolice: 'Policía', tCrime: 'Sucesos', tTraffic: 'Tráfico', tHousing: 'Vivienda', tSchools: 'Colegios', tSport: 'Deportes', tPolitics: 'Política',
   tBusiness: 'Economía', tWeather: 'Tiempo', tAccident: 'Accidentes e incendios', tCulture: 'Cultura', tHealth: 'Salud',
   sumNow: 'Ahora:', report: 'Informe del barrio', repWeek: '{n} noticias en 7 días', repUsual: 'normal {n} por semana',
   repAbove: 'Más activo de lo normal', repBelow: 'Más tranquilo de lo normal', repNormal: 'Como siempre', repTop: 'Lo más comentado', repHot: 'Zonas más activas',
@@ -144,7 +144,7 @@ const es: D = {
 }
 
 const fr: D = {
-  tAll: 'Tous les sujets', tCrime: 'Faits divers', tTraffic: 'Circulation', tHousing: 'Logement', tSchools: 'Écoles', tSport: 'Sport', tPolitics: 'Politique',
+  tAll: 'Tous les sujets', tPolice: 'Police', tCrime: 'Faits divers', tTraffic: 'Circulation', tHousing: 'Logement', tSchools: 'Écoles', tSport: 'Sport', tPolitics: 'Politique',
   tBusiness: 'Économie', tWeather: 'Météo', tAccident: 'Accidents et incendies', tCulture: 'Culture', tHealth: 'Santé',
   sumNow: 'En ce moment :', report: 'Rapport de quartier', repWeek: '{n} articles en 7 jours', repUsual: 'habituellement {n} par semaine',
   repAbove: 'Plus actif que d’habitude', repBelow: 'Plus calme que d’habitude', repNormal: 'Comme d’habitude', repTop: 'Les plus discutés', repHot: 'Zones les plus actives',
@@ -172,7 +172,7 @@ const fr: D = {
 }
 
 const de: D = {
-  tAll: 'Alle Themen', tCrime: 'Kriminalität', tTraffic: 'Verkehr', tHousing: 'Wohnen', tSchools: 'Schulen', tSport: 'Sport', tPolitics: 'Politik',
+  tAll: 'Alle Themen', tPolice: 'Polizei', tCrime: 'Kriminalität', tTraffic: 'Verkehr', tHousing: 'Wohnen', tSchools: 'Schulen', tSport: 'Sport', tPolitics: 'Politik',
   tBusiness: 'Wirtschaft', tWeather: 'Wetter', tAccident: 'Unfälle & Brände', tCulture: 'Kultur', tHealth: 'Gesundheit',
   sumNow: 'Gerade:', report: 'Kiez-Bericht', repWeek: '{n} Meldungen in 7 Tagen', repUsual: 'üblich {n} pro Woche',
   repAbove: 'Aktiver als üblich', repBelow: 'Ruhiger als üblich', repNormal: 'Wie üblich', repTop: 'Meistbesprochen', repHot: 'Aktivste Gegenden',
