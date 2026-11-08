@@ -45,8 +45,8 @@ Zoom seamlessly from the entire planet down to **country → province/state → 
 
 | Feature | Description |
 |---|---|
-| 🏠 **Exact Home-Address Watch** | Search and monitor full street addresses (including house numbers and postal codes), neighbourhoods, cities, or entire countries. |
-| 📰 **100 Latest News Stories (Newest First)** | Fetches up to **100 local headlines** sorted strictly by date (`#01` is always the newest item). When a specific street has fewer than 100 direct press hits, NewzLocal cascades outward through the surrounding district and municipality with clear scope tags (`📍 Street` vs. surrounding area). |
+| 🏠 **Exact Home-Address & Venue Watch** | Search and monitor full street addresses (including house numbers and postal codes), venues, neighbourhoods, islands, cities, or entire countries. |
+| 📰 **Strict Place Matching (Up to 100 Latest)** | Fetches up to **100 news headlines and 100 forum discussions** strictly mentioning the exact selected place—never diluted with unrelated parent-city stories. Toggle instantly between **Newest** (`#01` strictly chronological) and **Most Covered** (multi-outlet press clusters, reply counts & shared topic buzz). |
 | 💬 **Automatic Forum Spotlight** | Even when zero press articles exist for an exact street address, NewzLocal automatically surfaces the **most important local forum threads & posts** right at the top of the feed—ranked by exact address match, urgent topics, community activity, and recency. |
 | 📱 **Mobile Push Notifications (News + Forums)** | Save any address, neighbourhood, city, or country as a favourite to get **background Web Push notifications** (RFC 8291 `aes128gcm` + VAPID via Cloudflare Worker & Service Worker) as well as live in-app alerts whenever new **news articles** or **forum posts** appear. Includes per-place News/Forum toggles, quiet hours, topic filters, and one-tap test notifications. |
 | 🌐 **Interactive 3D Globe & Map Styles** | Powered by MapLibre GL with 3D terrain/buildings, admin boundary polygons (OpenStreetMap & geoBoundaries), street geometry highlighting, and instant switching between **Satellite**, **Broadsheet Paper**, and **Night** map modes. |

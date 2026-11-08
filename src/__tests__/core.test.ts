@@ -10,9 +10,12 @@ import {
   clampDate,
   flashbackCreated,
   inQuiet,
+  mentionsPlace,
   parseFlashbackDate,
   parseGdeltDate,
+  placeAliases,
   rankImportantForum,
+  rankMostCovered,
   streetBaseName,
   target,
   toPlace,
@@ -229,7 +232,7 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
       ],
     }
     const t = target(p, 0)
-    expect(t.queries).toEqual(['"Borgarfjordsgatan" "Kista"', '"Borgarfjordsgatan" "Stockholm"'])
+    expect(t.queries).toEqual(['"Borgarfjordsgatan" "Kista"', '"Borgarfjordsgatan" "Stockholm"', '"Borgarfjordsgatan"'])
     expect(t.key).toBe('borgarfjordsgatan')
   })
 
@@ -328,25 +331,91 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     expect(parseFlashbackDate('Idag 14:25', refNow)?.getHours()).toBe(14)
     expect(parseFlashbackDate('Igår 23:10', refNow)?.getDate()).toBe(7)
     expect(parseFlashbackDate('2026-11-05 09:30', refNow)?.getFullYear()).toBe(2026)
+    expect(parseFlashbackDate('2024-05-12, 14:22', refNow)?.getFullYear()).toBe(2024)
 
     // Future-dated RSS timestamps are clamped so real newest items stay #01
     const future = clampDate(new Date(Date.now() + 86_400_000))
     expect(+future).toBeLessThanOrEqual(Date.now() + 1000)
 
-    // Forum spotlight ranking prioritizes exact street incidents + active comment counts
+    // Forum spotlight ranking prioritizes urgent incidents + active comment counts
     const threads: Article[] = [
-      art('Allmän fråga om vädret i Stockholm', 'reddit r/stockholm (2)', 1, { forum: true, exactMatch: false }),
-      art('Polisinsats och avspärrning på Sveavägen 44 just nu', 'flashback', 4, { forum: true, exactMatch: true, scopeTag: 'Sveavägen 44' }),
-      art('Diskussion om trafiken i Norrmalm', 'reddit r/stockholm (45)', 3, { forum: true, exactMatch: false }),
+      art('Allmän fråga om vädret på Sveavägen', 'reddit r/stockholm (2)', 1, { forum: true, comments: 2, score: 6 }),
+      art('Polisinsats och brand på Sveavägen 44 just nu', 'flashback · Brott (95)', 2, { forum: true, comments: 95, score: 285 }),
+      art('Diskussion om trafiken på Sveavägen', 'reddit r/stockholm (45)', 3, { forum: true, comments: 45, score: 135 }),
     ]
     const ranked = rankImportantForum(threads, 3)
     expect(ranked[0].title).toContain('Sveavägen 44')
-    expect(ranked[1].title).toContain('Norrmalm')
+    expect(ranked[1].title).toContain('trafiken')
 
     // Push notification deep links with &tab=forum open directly into Forum tab
     const forumHash = `#p=${encodePlace(home, 0)}&tab=forum`
     const route = readHashPlace(forumHash)
     expect(route?.tab).toBe('forum')
     expect(route?.place.parts[0].name).toBe('Sveavägen 44')
+  })
+
+  it('strictly matches exact places (Ribegatan, Phuket, venues, Åre, Lund) without leaking parent-city junk', () => {
+    const ribeAliases = placeAliases({ level: 'street', name: 'Ribegatan 144' }, 'SE')
+    expect(mentionsPlace('Polisinsats på Ribegatan i Husby i natt', ribeAliases)).toBe(true)
+    expect(mentionsPlace('Boende längs Ribegatans norra del hörde smäll', ribeAliases)).toBe(true)
+    // Unrelated Stockholm / general Lemmy posts must NEVER match Ribegatan
+    expect(mentionsPlace('Att få 7 till 8 timmars sömn i Stockholm', ribeAliases)).toBe(false)
+    expect(mentionsPlace('[Nyheter] Alfa Laval satsar 700 miljoner USD på NAVTOR', ribeAliases)).toBe(false)
+
+    // Phuket (island / city)
+    const phuketIsland = toPlace({
+      geometry: { coordinates: [98.39, 7.88] },
+      properties: { osm_value: 'island', type: 'other', name: 'Phuket', country: 'Thailand', countrycode: 'TH' },
+    })
+    expect(phuketIsland.parts[0]).toEqual({ level: 'city', name: 'Phuket' })
+    const phuketAliases = placeAliases(phuketIsland.parts[0], 'TH')
+    expect(mentionsPlace('Heavy rain causes flooding in Phuket Old Town', phuketAliases)).toBe(true)
+    expect(mentionsPlace('Reseguide till Phukets bästa stränder', phuketAliases)).toBe(true)
+    expect(mentionsPlace('Bangkok stock exchange closes higher in Thailand', phuketAliases)).toBe(false)
+
+    // Named venue / lokal ("Kista Galleria")
+    const venue = toPlace({
+      geometry: { coordinates: [17.94, 59.4] },
+      properties: { type: 'other', name: 'Kista Galleria', street: 'Kistagången', district: 'Kista', city: 'Stockholm', country: 'Sverige', countrycode: 'SE' },
+    })
+    expect(venue.parts[0]).toEqual({ level: 'street', name: 'Kista Galleria' })
+
+    // Short / accented names ("Åre", "Lund") avoid false positives ("are", "Lundqvist")
+    expect(mentionsPlace('Rekordmånga bokar skidresa till Åre', ['Åre'])).toBe(true)
+    expect(mentionsPlace('Why are people sleeping less than 7 hours', ['Åre'])).toBe(false)
+    expect(mentionsPlace('Lunds universitet klättrar i ny rankning', ['Lund'])).toBe(true)
+    expect(mentionsPlace('Henrik Lundqvist hyllas i New York', ['Lund'])).toBe(false)
+
+    // Country exonyms ("Sverige" <-> "Sweden")
+    const seAliases = placeAliases({ level: 'country', name: 'Sverige' }, 'SE')
+    expect(mentionsPlace('Sweden announces new rail investment', seAliases)).toBe(true)
+  })
+
+  it('sorts Most Covered (Mest omskrivet) accurately for both Forum replies and News coverage/buzz', () => {
+    const forumItems: Article[] = [
+      art('Ny tråd om Ribegatan nyss', 'reddit r/stockholm', 0.2, { forum: true, comments: 0, score: 1 }),
+      art('Stora tråden om händelsen på Ribegatan', 'flashback · Brott (312)', 48, { forum: true, comments: 312, score: 936 }),
+      art('Diskussion om renoveringen på Ribegatan', 'reddit r/stockholm (44)', 12, { forum: true, comments: 44, score: 140 }),
+    ]
+    const hotForum = rankMostCovered(forumItems, 'Ribegatan')
+    expect(hotForum.map((x) => x.comments)).toEqual([312, 44, 0])
+
+    const newsItems: Article[] = [
+      art('Liten notis om parkering i Phuket', 'Local Paper', 1),
+      art('Kraftig översvämning vid flygplatsen i Phuket stoppar flyg', 'Bangkok Post', 6),
+      art('Översvämning vid flygplatsen i Phuket drabbar turister', 'Phuket News', 10),
+      art('Stor brand i hamnen i Phuket under natten', 'SVT', 8, {
+        also: [
+          { url: 'https://a.test/1', title: 'Brand i hamnen', source: 'DN', date: new Date() },
+          { url: 'https://a.test/2', title: 'Brand i Phuket', source: 'Aftonbladet', date: new Date() },
+        ],
+      }),
+    ]
+    const hotNews = rankMostCovered(newsItems, 'Phuket')
+    // Multi-source cluster (+2 also) ranks #1, followed by shared buzz ("översvämning" + "flygplatsen"), then isolated story
+    expect(hotNews[0].title).toContain('Stor brand i hamnen')
+    expect(hotNews[1].title).toContain('översvämning')
+    expect(hotNews[2].title).toContain('Översvämning')
+    expect(hotNews[3].title).toContain('parkering')
   })
 })

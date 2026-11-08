@@ -161,9 +161,15 @@ function normStr(s) {
     .trim()
 }
 
+function hasPlaceWord(text, mustKey) {
+  if (!mustKey) return true
+  const hay = ` ${normStr(text)} `
+  return hay.includes(` ${mustKey}`)
+}
+
 function buildPlaceQueries(place) {
   const parts = Array.isArray(place.parts) ? place.parts : []
-  if (!parts.length) return { newsQueries: [], forumQueries: [], mustKey: '' }
+  if (!parts.length) return { newsQueries: [], forumQueries: [], mustKey: '', cleanOwn: '' }
   const own = parts[0]
   const cleanOwn = own.level === 'street' ? streetBase(own.name) : own.name
   const hasHouseNo = own.level === 'street' && normStr(own.name) !== normStr(cleanOwn)
@@ -171,24 +177,21 @@ function buildPlaceQueries(place) {
   const ctx = up.find((x) => x.level === 'city') ?? up[0]
   const small = own.level === 'street' || own.level === 'district'
   const newsQueries = small && ctx
-    ? [...(hasHouseNo ? [`"${own.name}" "${ctx.name}"`] : []), `"${cleanOwn}" "${ctx.name}"`]
+    ? [
+        ...(hasHouseNo ? [`"${own.name}" "${ctx.name}"`] : []),
+        `"${cleanOwn}" "${ctx.name}"`,
+        ...(cleanOwn.length >= 6 ? [`"${cleanOwn}"`] : []),
+      ]
     : [`"${cleanOwn}"`]
   const forumQueries = [
-    ...(hasHouseNo ? [small && ctx ? `${own.name} ${ctx.name}` : own.name] : []),
-    small && ctx ? `${cleanOwn} ${ctx.name}` : cleanOwn,
+    ...(cleanOwn.length >= 4 ? [`"${cleanOwn}"`] : []),
+    ...(small && ctx ? [`${cleanOwn} ${ctx.name}`] : [cleanOwn]),
   ]
-  // When monitoring a home street address, also monitor its immediate suburb/district if present
-  if (own.level === 'street' && up[0]?.level === 'district') {
-    const sub = up[0].name
-    const cityCtx = up.find((x) => x.level === 'city')
-    newsQueries.push(cityCtx ? `"${sub}" "${cityCtx.name}"` : `"${sub}"`)
-    forumQueries.push(cityCtx ? `${sub} ${cityCtx.name}` : sub)
-  }
   const mustKey = normStr(cleanOwn).split(' ').filter((w) => w.length >= 3).sort((a, b) => b.length - a.length)[0] || ''
-  return { newsQueries, forumQueries, mustKey }
+  return { newsQueries, forumQueries, mustKey, cleanOwn }
 }
 
-async function checkNewsForPlace(place, queries) {
+async function checkNewsForPlace(place, queries, mustKey) {
   const cc = (place.cc || 'US').toUpperCase()
   const out = []
   for (const q of queries) {
@@ -202,19 +205,21 @@ async function checkNewsForPlace(place, queries) {
         for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
           const block = m[1]
           const title = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/)
+          const desc = block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>|<description>([\s\S]*?)<\/description>/)
           const link = block.match(/<link>([\s\S]*?)<\/link>/)
           const t = (title?.[1] ?? title?.[2] ?? '').trim()
+          const d = (desc?.[1] ?? desc?.[2] ?? '').replace(/<[^>]+>/g, ' ').trim()
           const l = (link?.[1] ?? '').trim()
-          if (t && l) out.push({ title: t, url: l, kind: 'news' })
+          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey)) out.push({ title: t, url: l, kind: 'news' })
         }
       }
     } catch { /* next */ }
-    if (out.length >= 6) break
+    if (out.length >= 8) break
   }
   return out.slice(0, 12)
 }
 
-async function checkForumsForPlace(place, forumQueries, mustKey) {
+async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
   const cc = (place.cc || '').toUpperCase()
   const out = []
   const q = forumQueries[0]
@@ -222,7 +227,7 @@ async function checkForumsForPlace(place, forumQueries, mustKey) {
 
   // 1. Reddit newest threads
   try {
-    const r = await fetch(`https://www.reddit.com/search.json?raw_json=1&sort=new&limit=10&q=${encodeURIComponent(q)}`, {
+    const r = await fetch(`https://www.reddit.com/search.json?raw_json=1&sort=new&limit=15&q=${encodeURIComponent(q)}`, {
       headers: { 'User-Agent': 'NewzLocalAlert/1.0' },
       signal: AbortSignal.timeout(5500),
     })
@@ -230,19 +235,17 @@ async function checkForumsForPlace(place, forumQueries, mustKey) {
       const j = await r.json()
       for (const c of j?.data?.children ?? []) {
         const d = c?.data
-        if (d?.permalink && d?.title) {
-          if (!mustKey || normStr(`${d.title} ${d.selftext || ''}`).includes(mustKey)) {
-            out.push({ title: d.title, url: `https://www.reddit.com${d.permalink}`, kind: 'forum' })
-          }
+        if (d?.permalink && d?.title && hasPlaceWord(`${d.title} ${d.selftext || ''}`, mustKey)) {
+          out.push({ title: d.title, url: `https://www.reddit.com${d.permalink}`, kind: 'forum' })
         }
       }
     }
   } catch { /* ignore */ }
 
-  // 2. Flashback active threads in Sweden (including "Idag HH:MM")
-  if (cc === 'SE') {
+  // 2. Flashback active threads & post mentions in Sweden
+  if (cc === 'SE' && cleanOwn) {
     try {
-      const r = await fetch(`https://www.flashback.org/sok/?query=${encodeURIComponent(q)}&so=pd`, {
+      const r = await fetch(`https://www.flashback.org/sok/?query=${encodeURIComponent(cleanOwn)}&so=pd`, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
         signal: AbortSignal.timeout(5500),
       })
@@ -251,7 +254,7 @@ async function checkForumsForPlace(place, forumQueries, mustKey) {
         for (const m of html.matchAll(/<a[^>]+id=["']thread_title_(\d+)["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
           const href = m[2]
           const title = m[3].replace(/<[^>]+>/g, '').trim()
-          if (title && href) {
+          if (title && href && hasPlaceWord(title, mustKey)) {
             out.push({ title, url: new URL(href, 'https://www.flashback.org').href, kind: 'forum' })
           }
           if (out.length >= 16) break
@@ -262,17 +265,15 @@ async function checkForumsForPlace(place, forumQueries, mustKey) {
 
   // 3. Lemmy Fediverse
   try {
-    const r = await fetch(`https://lemmy.world/api/v3/search?type_=Posts&sort=New&limit=8&q=${encodeURIComponent(q)}`, {
+    const r = await fetch(`https://lemmy.world/api/v3/search?type_=Posts&sort=New&limit=10&q=${encodeURIComponent(q)}`, {
       signal: AbortSignal.timeout(5000),
     })
     if (r.ok) {
       const j = await r.json()
       for (const item of j?.posts ?? []) {
         const p = item?.post
-        if (p?.ap_id && p?.name) {
-          if (!mustKey || normStr(`${p.name} ${p.body || ''}`).includes(mustKey)) {
-            out.push({ title: p.name, url: p.ap_id, kind: 'forum' })
-          }
+        if (p?.ap_id && p?.name && hasPlaceWord(`${p.name} ${p.body || ''}`, mustKey)) {
+          out.push({ title: p.name, url: p.ap_id, kind: 'forum' })
         }
       }
     }
@@ -515,13 +516,13 @@ export default {
 
       for (const p of rec.places) {
         if (p.cat && inQuietHours(rec.quiet?.[p.cat])) continue
-        const { newsQueries, forumQueries, mustKey } = buildPlaceQueries(p)
+        const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
         const wantNews = p.alertNews !== false
         const wantForum = p.alertForum !== false
 
         const [newsHits, forumHits] = await Promise.all([
-          wantNews ? checkNewsForPlace(p, newsQueries) : Promise.resolve([]),
-          wantForum ? checkForumsForPlace(p, forumQueries, mustKey) : Promise.resolve([]),
+          wantNews ? checkNewsForPlace(p, newsQueries, mustKey) : Promise.resolve([]),
+          wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn) : Promise.resolve([]),
         ])
 
         const combined = [...newsHits, ...forumHits]
