@@ -1,7 +1,7 @@
 name: Deploy Cloudflare Worker
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/**']
     paths:
       - 'worker/**'
       - '.github/workflows/deploy-worker.yml'
@@ -20,14 +20,21 @@ jobs:
           if [ -z "$CF_TOKEN" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "### Cloudflare Worker ej kopplad ännu" >> "$GITHUB_STEP_SUMMARY"
-            echo "Lägg till secret \`CLOUDFLARE_API_TOKEN\` under Settings → Secrets and variables → Actions (se \`worker/README.md\`)." >> "$GITHUB_STEP_SUMMARY"
+            echo "Lägg till secret \`CLOUDFLARE_API_TOKEN\` under Settings → Secrets and variables → Actions." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Deploy Worker with Wrangler
+        id: deploy
         if: steps.check.outputs.enabled == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
+      - name: Print Worker URL
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          echo "WORKER_URL=${{ steps.deploy.outputs.deployment-url }}"
+          echo "### Deployed Worker URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.deploy.outputs.deployment-url }}\`" >> "$GITHUB_STEP_SUMMARY"

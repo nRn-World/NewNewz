@@ -1,6 +1,6 @@
 name = "newzlocal-proxy"
 main = "index.js"
-compatibility_date = "2026-10-01"
+compatibility_date = "2025-01-01"
 
 [triggers]
 crons = ["*/15 * * * *"]
