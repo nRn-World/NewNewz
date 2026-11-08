@@ -29,6 +29,12 @@ const en: D = {
   alertSources: 'Notify me on', forumSpotlight: 'Top forum discussions about {p}',
   noExactNewsNote: 'No direct press articles on {p} yet — showing top forum posts + latest {n} nearby local news in date order.',
   seeAllForum: 'All forum posts →',
+  apkPromptTitle: 'Install NewzLocal as an Android App',
+  apkPromptBody: 'Install NewzLocal as a real Android APK on your phone for home-screen launch and native lock-screen push notifications whenever new news, police events, or forum posts appear in your favourites.',
+  apkDownloadBtn: '⬇ Install Android APK (NewzLocal.apk)',
+  apkWebInstallBtn: '⚡ Quick install via browser',
+  apkAfterHint: 'Downloading NewzLocal.apk! Open the downloaded file, tap Install, and star ★ your favourite places to receive real push alerts.',
+  apkLater: 'Not now',
 }
 
 const sv: D = {
@@ -57,6 +63,12 @@ const sv: D = {
   alertSources: 'Skicka notis vid nya', forumSpotlight: 'Viktigaste foruminlägg om {p}',
   noExactNewsNote: 'Inga direkta nyhetsartiklar om {p} ännu — visar viktigaste foruminläggen + senaste {n} lokala nyheterna i datumordning.',
   seeAllForum: 'Alla foruminlägg →',
+  apkPromptTitle: 'Installera NewzLocal som Android-app',
+  apkPromptBody: 'Vill du installera NewzLocal som en riktig Android-APK på mobilen? Du får appen på hemskärmen och riktiga pushnotiser direkt på låsskärmen vid nya nyheter, polishändelser och foruminlägg i dina favoriter.',
+  apkDownloadBtn: '⬇ Installera Android-APK (NewzLocal.apk)',
+  apkWebInstallBtn: '⚡ Snabbinstallera via webbläsaren',
+  apkAfterHint: 'Nedladdningen av NewzLocal.apk har startat! Öppna filen i nedladdningar, tryck Installera och spara sedan dina favoritplatser med ★ för att få notiser.',
+  apkLater: 'Inte nu',
 }
 
 const tr_: D = {
@@ -85,6 +97,12 @@ const tr_: D = {
   alertSources: 'Bildirim kaynakları', forumSpotlight: '{p} hakkında öne çıkan forum başlıkları',
   noExactNewsNote: '{p} için doğrudan haber yok — önemli forum başlıkları + tarih sırasıyla son {n} yerel haber gösteriliyor.',
   seeAllForum: 'Tüm forum yazıları →',
+  apkPromptTitle: 'NewzLocal Android Uygulamasını Yükle',
+  apkPromptBody: 'NewzLocal uygulamasını gerçek bir Android APK olarak telefonunuza yükleyin; favori yerlerinizde yeni haber veya forum paylaşımları olduğunda anında bildirim alın.',
+  apkDownloadBtn: '⬇ Android APK İndir (NewzLocal.apk)',
+  apkWebInstallBtn: '⚡ Tarayıcı üzerinden hızlı yükle',
+  apkAfterHint: 'NewzLocal.apk indiriliyor! İndirilen dosyayı açıp Yükle’ye dokunun, ardından bildirim almak için favori yerlerinizi ★ ile kaydedin.',
+  apkLater: 'Şimdi değil',
 }
 
 const ar: D = {
@@ -113,6 +131,12 @@ const ar: D = {
   alertSources: 'تنبيهي عند جديد في', forumSpotlight: 'أهم نقاشات المنتديات حول {p}',
   noExactNewsNote: 'لا توجد أخبار مباشرة عن {p} بعد — تُعرض أهم نقاشات المنتديات + أحدث {n} خبر محلي بالترتيب الزمني.',
   seeAllForum: 'كل منشورات المنتديات ←',
+  apkPromptTitle: 'تثبيت تطبيق NewzLocal للأندرويد',
+  apkPromptBody: 'ثبّت تطبيق NewzLocal بصيغة APK على هاتفك الأندرويد لتشغيل سريع وتلقي إشعارات فورية عند ظهور أخبار جديدة في أماكنك المفضلة.',
+  apkDownloadBtn: '⬇ تنزيل وتثبيت APK للأندرويد',
+  apkWebInstallBtn: '⚡ تثبيت سريع عبر المتصفح',
+  apkAfterHint: 'بدأ تنزيل NewzLocal.apk! افتح الملف واضغط تثبيت، ثم احفظ أماكنك المفضلة بعلامة ★ لتلقي الإشعارات.',
+  apkLater: 'ليس الآن',
 }
 
 const es: D = {
@@ -141,6 +165,12 @@ const es: D = {
   alertSources: 'Avisarme de nuevos en', forumSpotlight: 'Debates destacados en foros sobre {p}',
   noExactNewsNote: 'Sin noticias directas de {p} — mostrando foros destacados + últimas {n} noticias locales por fecha.',
   seeAllForum: 'Ver todos los foros →',
+  apkPromptTitle: 'Instalar NewzLocal como app Android',
+  apkPromptBody: 'Instala NewzLocal como APK nativo de Android en tu móvil para abrirla desde la pantalla de inicio y recibir notificaciones reales cuando haya nuevas noticias en tus favoritos.',
+  apkDownloadBtn: '⬇ Instalar APK de Android (NewzLocal.apk)',
+  apkWebInstallBtn: '⚡ Instalación rápida desde el navegador',
+  apkAfterHint: '¡Descargando NewzLocal.apk! Abre el archivo descargado, pulsa Instalar y guarda tus lugares favoritos con ★ para recibir alertas.',
+  apkLater: 'Ahora no',
 }
 
 const fr: D = {
@@ -169,6 +199,12 @@ const fr: D = {
   alertSources: 'M’alerter pour', forumSpotlight: 'Discussions importantes sur {p}',
   noExactNewsNote: 'Aucun article direct sur {p} — affichage des forums clés + {n} dernières actualités locales par date.',
   seeAllForum: 'Tous les forums →',
+  apkPromptTitle: 'Installer l’application Android NewzLocal',
+  apkPromptBody: 'Installez NewzLocal en tant qu’APK Android sur votre téléphone pour un accès rapide et de vraies notifications dès qu’une nouvelle actualité paraît dans vos favoris.',
+  apkDownloadBtn: '⬇ Installer l’APK Android (NewzLocal.apk)',
+  apkWebInstallBtn: '⚡ Installation rapide via le navigateur',
+  apkAfterHint: 'Téléchargement de NewzLocal.apk lancé ! Ouvrez le fichier, appuyez sur Installer puis ajoutez vos lieux favoris avec ★ pour recevoir les alertes.',
+  apkLater: 'Pas maintenant',
 }
 
 const de: D = {
@@ -197,6 +233,12 @@ const de: D = {
   alertSources: 'Benachrichtigen bei', forumSpotlight: 'Wichtige Forenbeiträge zu {p}',
   noExactNewsNote: 'Noch keine direkten Artikel zu {p} — wichtigste Forenbeiträge + letzte {n} Lokalnachrichten nach Datum.',
   seeAllForum: 'Alle Forenbeiträge →',
+  apkPromptTitle: 'NewzLocal als Android-App installieren',
+  apkPromptBody: 'Installiere NewzLocal als echte Android-APK auf deinem Smartphone für Schnellstart und echte Push-Mitteilungen bei neuen Nachrichten in deinen Favoriten.',
+  apkDownloadBtn: '⬇ Android-APK installieren (NewzLocal.apk)',
+  apkWebInstallBtn: '⚡ Schnellinstallation über den Browser',
+  apkAfterHint: 'Download von NewzLocal.apk gestartet! Öffne die Datei, tippe auf Installieren und markiere deine Favoriten mit ★ für Push-Mitteilungen.',
+  apkLater: 'Nicht jetzt',
 }
 
 export const EXTRA: Record<Lang, D> = { en, sv, tr: tr_, ar, es, fr, de }

@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  type BeforeInstallPromptEvent,
+  canUseNotifications,
+  getNotificationPerm,
+  isNativeAndroidApp,
+  isStandaloneApp,
+  markInstallPromptDismissed,
+  requestAppNotificationPermission,
+  shouldAutoPromptInstall,
+} from './androidBridge'
 import { norm } from './areas'
 import { type SavedArticle, loadSaved, toggleSavedItem } from './bookmarks'
 import { exportClipCard } from './clipCard'
@@ -6,6 +16,7 @@ import FavsPanel from './FavsPanel'
 import { Flag } from './Flags'
 import { LANGS, type Lang, loadLang, saveLang, tr } from './i18n'
 import { ProgressBox, Report, TimeTravel, TopicBar } from './Insights'
+import InstallPrompt from './InstallPrompt'
 import {
   type Article,
   type Place,
@@ -41,11 +52,6 @@ import { encodePlace, readHashPlace } from './urlState'
 import { type SheetSnap, useGlobe } from './useGlobe'
 import { type LocalWeather, fetchWeather } from './weather'
 import './index.css'
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt(): Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
-}
 
 type FeedState = { articles: Article[]; scope: string; query: string; exactCount?: number }
 
@@ -98,9 +104,12 @@ export default function App() {
   const [readerOpen, setReaderOpen] = useState<Record<string, boolean>>({})
   const [readerData, setReaderData] = useState<Record<string, { loading?: boolean; summary?: string; image?: string }>>({})
   const [wxState, setWxState] = useState<{ key: string; data: LocalWeather } | null>(null)
-  const [perm, setPerm] = useState<string>(() => ('Notification' in window ? Notification.permission : 'unsupported'))
+  const [perm, setPerm] = useState<string>(getNotificationPerm)
   const [pushActive, setPushActive] = useState(false)
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() =>
+    typeof window !== 'undefined' ? window.__deferredInstallPrompt ?? null : null,
+  )
+  const [installModalOpen, setInstallModalOpen] = useState(false)
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('half')
   const sheetDrag = useRef<{ y0: number; moved: boolean } | null>(null)
 
@@ -263,16 +272,29 @@ export default function App() {
     }
   }, [pickOnGlobe, goHome])
 
-  // PWA install prompt listener
+  // PWA / Android APK install prompt listener + automatic visit prompt
   useEffect(() => {
     const onBeforeInstall = (e: Event) => {
       e.preventDefault()
-      setInstallPrompt(e as BeforeInstallPromptEvent)
+      const bip = e as BeforeInstallPromptEvent
+      window.__deferredInstallPrompt = bip
+      setInstallPrompt(bip)
     }
-    const onInstalled = () => setInstallPrompt(null)
+    const onInstalled = () => {
+      window.__deferredInstallPrompt = null
+      setInstallPrompt(null)
+      setInstallModalOpen(false)
+    }
+    window.__onAndroidNotifPerm = (state: string) => setPerm(state)
     window.addEventListener('beforeinstallprompt', onBeforeInstall)
     window.addEventListener('appinstalled', onInstalled)
+
+    const timer = shouldAutoPromptInstall()
+      ? window.setTimeout(() => setInstallModalOpen(true), 650)
+      : undefined
+
     return () => {
+      if (timer !== undefined) window.clearTimeout(timer)
       window.removeEventListener('beforeinstallprompt', onBeforeInstall)
       window.removeEventListener('appinstalled', onInstalled)
     }
@@ -408,9 +430,9 @@ export default function App() {
     }
   }, [])
 
-  // Sync background Web Push subscription when configured & granted
+  // Sync background Web Push / Native Android APK JobScheduler subscription when configured
   useEffect(() => {
-    if (perm !== 'granted') return
+    if (perm !== 'granted' && !isNativeAndroidApp()) return
     void syncPushSubscription(favs, lang, quiet).then(setPushActive)
   }, [favs, lang, quiet, perm])
 
@@ -443,8 +465,8 @@ export default function App() {
           if (
             fresh.length &&
             !pushActive &&
-            'Notification' in window &&
-            Notification.permission === 'granted' &&
+            canUseNotifications() &&
+            getNotificationPerm() === 'granted' &&
             !inQuiet(f.cat ? loadQuiet()[f.cat] : undefined)
           ) {
             const [first] = await translate([fresh[0]], langRef.current, ctrl.signal)
@@ -602,8 +624,8 @@ export default function App() {
   }
 
   const enableNotifications = () => {
-    if (!('Notification' in window)) return
-    Notification.requestPermission()
+    if (!canUseNotifications()) return
+    requestAppNotificationPermission()
       .then((p) => {
         setPerm(p)
         if (p === 'granted') void showAppNotification('NewzLocal', t('notifyOn'))
@@ -618,7 +640,7 @@ export default function App() {
   }
   const toggleFav = () => {
     if (!place) return
-    if (!isFav && 'Notification' in window && Notification.permission === 'default') {
+    if (!isFav && canUseNotifications() && getNotificationPerm() === 'default') {
       enableNotifications()
     }
     commitFavs(
@@ -700,18 +722,15 @@ export default function App() {
           <div className="dateline">
             <span>{formattedDate}</span>
             <div className="head-actions">
-              {installPrompt && (
+              {!isStandaloneApp() && (
                 <button
                   type="button"
                   className="paperbtn installbtn"
-                  onClick={() => {
-                    void installPrompt.prompt()
-                    void installPrompt.userChoice.then(() => setInstallPrompt(null))
-                  }}
+                  onClick={() => setInstallModalOpen(true)}
                   title={t('install')}
                   aria-label={t('install')}
                 >
-                  ↓
+                  APK
                 </button>
               )}
               <button
@@ -824,6 +843,7 @@ export default function App() {
             mineBusy={mineBusy}
             onOpenMyPaper={openMyPaper}
             onOpenFav={openFav}
+            onOpenInstall={() => setInstallModalOpen(true)}
             t={t}
           />
         ) : tab === 'saved' ? (
@@ -1119,6 +1139,23 @@ export default function App() {
         )}
         <footer>{t('footer')}</footer>
       </aside>
+
+      <InstallPrompt
+        open={installModalOpen}
+        installPrompt={installPrompt}
+        onInstalledViaBrowser={() => {
+          setInstallPrompt(null)
+          setInstallModalOpen(false)
+          if (canUseNotifications() && getNotificationPerm() === 'default') {
+            enableNotifications()
+          }
+        }}
+        onDismiss={() => {
+          markInstallPromptDismissed()
+          setInstallModalOpen(false)
+        }}
+        t={t}
+      />
 
       {mine && (
         <Paper

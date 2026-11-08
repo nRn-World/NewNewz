@@ -1,0 +1,163 @@
+import type { Place, Quiet } from './lib'
+import { label } from './lib'
+import { encodePlace } from './urlState'
+
+export interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+}
+
+interface NativeAndroidBridge {
+  isAndroidApk?: () => boolean
+  getNotificationPermission?: () => string
+  requestNotificationPermission?: () => void
+  syncFavorites?: (payloadJson: string) => void
+  notifyNow?: (title: string, body: string, deepUrl: string, tag: string) => boolean
+  checkNow?: () => void
+}
+
+declare global {
+  interface Window {
+    NewzLocalAndroid?: NativeAndroidBridge
+    __deferredInstallPrompt?: BeforeInstallPromptEvent | null
+    __onAndroidNotifPerm?: (perm: string) => void
+  }
+}
+
+const DISMISS_KEY = 'newzlocal.installDismissedAt'
+const DISMISS_TTL_MS = 24 * 3600 * 1000
+
+export function isNativeAndroidApp(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    if (window.NewzLocalAndroid?.isAndroidApk?.()) return true
+  } catch { /* ignore */ }
+  return typeof navigator !== 'undefined' && /NewzLocalAndroidAPK/i.test(navigator.userAgent)
+}
+
+export function isStandaloneApp(): boolean {
+  if (isNativeAndroidApp()) return true
+  if (typeof window === 'undefined') return false
+  if (window.matchMedia?.('(display-mode: standalone)').matches) return true
+  if (window.matchMedia?.('(display-mode: fullscreen)').matches) return true
+  return (navigator as { standalone?: boolean }).standalone === true
+}
+
+export function isAndroidDevice(): boolean {
+  return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+}
+
+export function isIosDevice(): boolean {
+  return typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)
+}
+
+export function canUseNotifications(): boolean {
+  if (isNativeAndroidApp()) return true
+  return typeof window !== 'undefined' && 'Notification' in window
+}
+
+export function getNotificationPerm(): string {
+  if (typeof window === 'undefined') return 'unsupported'
+  if (window.NewzLocalAndroid?.getNotificationPermission) {
+    try {
+      return window.NewzLocalAndroid.getNotificationPermission()
+    } catch { /* fallback */ }
+  }
+  return 'Notification' in window ? Notification.permission : 'unsupported'
+}
+
+export async function requestAppNotificationPermission(): Promise<string> {
+  if (typeof window === 'undefined') return 'unsupported'
+  if (window.NewzLocalAndroid?.requestNotificationPermission) {
+    return new Promise((resolve) => {
+      const prev = window.__onAndroidNotifPerm
+      let settled = false
+      const finish = (state: string) => {
+        if (settled) return
+        settled = true
+        window.__onAndroidNotifPerm = prev
+        resolve(state)
+      }
+      window.__onAndroidNotifPerm = (state: string) => {
+        prev?.(state)
+        finish(state)
+      }
+      try {
+        window.NewzLocalAndroid?.requestNotificationPermission?.()
+      } catch {
+        finish(getNotificationPerm())
+      }
+      setTimeout(() => finish(getNotificationPerm()), 4000)
+    })
+  }
+  if ('Notification' in window) {
+    try {
+      return await Notification.requestPermission()
+    } catch {
+      return Notification.permission
+    }
+  }
+  return 'unsupported'
+}
+
+export function notifyViaNativeAndroid(title: string, body: string, deepUrl = './', tag = 'newzlocal'): boolean {
+  if (typeof window === 'undefined' || !window.NewzLocalAndroid?.notifyNow) return false
+  try {
+    const resolvedUrl = deepUrl.startsWith('http')
+      ? deepUrl
+      : new URL(deepUrl, 'https://nrnworld.one/NewzLocal/').href
+    return window.NewzLocalAndroid.notifyNow(title, body, resolvedUrl, tag)
+  } catch {
+    return false
+  }
+}
+
+export function syncNativeAndroidFavorites(
+  favs: Place[],
+  lang: string,
+  quiet: Record<string, Quiet>,
+  workerUrl: string,
+): boolean {
+  if (typeof window === 'undefined' || !window.NewzLocalAndroid?.syncFavorites) return false
+  try {
+    const payload = JSON.stringify({
+      lang,
+      quiet,
+      workerUrl,
+      places: favs.slice(0, 15).map((f) => ({
+        label: label(f),
+        hash: encodePlace(f, 0),
+        cc: f.cc,
+        parts: f.parts,
+        cat: f.cat,
+        alert: f.alert,
+        alertNews: f.alertNews !== false,
+        alertForum: f.alertForum !== false,
+      })),
+    })
+    window.NewzLocalAndroid.syncFavorites(payload)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function shouldAutoPromptInstall(): boolean {
+  if (typeof window === 'undefined' || isStandaloneApp()) return false
+  try {
+    const last = Number(localStorage.getItem(DISMISS_KEY) ?? '0')
+    if (last > 0 && Date.now() - last < DISMISS_TTL_MS) return false
+  } catch { /* ignore */ }
+  return true
+}
+
+export function markInstallPromptDismissed(): void {
+  try {
+    localStorage.setItem(DISMISS_KEY, String(Date.now()))
+  } catch { /* ignore */ }
+}
+
+export function apkDownloadUrl(): string {
+  const base = import.meta.env.BASE_URL || '/'
+  return `${base.endsWith('/') ? base : `${base}/`}NewzLocal.apk`
+}

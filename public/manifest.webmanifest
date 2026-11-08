@@ -1,33 +1,40 @@
 {
+  "id": "/NewzLocal/",
   "name": "NewzLocal",
   "short_name": "NewzLocal",
-  "description": "Local news and forum posts for any place on Earth.",
+  "description": "Local news, official police feeds, and forum discussions for any street, neighbourhood, or city on Earth.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#14110c",
   "theme_color": "#c8321e",
+  "categories": ["news", "magazines"],
+  "prefer_related_applications": false,
   "icons": [
-    {
-      "src": "favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml"
-    },
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "icons/icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }

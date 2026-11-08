@@ -360,6 +360,45 @@ export default {
       return new Response(JSON.stringify({ publicKey: vapid.publicKey }), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
+    // Native Android APK background favourite news & forum polling endpoint
+    if (url.pathname === '/push/poll' && req.method === 'POST') {
+      try {
+        const body = await req.json()
+        const places = Array.isArray(body?.places) ? body.places.slice(0, 12) : []
+        const results = []
+        for (const p of places) {
+          if (!p?.label || !Array.isArray(p?.parts) || !p.parts.length) continue
+          const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
+          const wantNews = p.alertNews !== false
+          const wantForum = p.alertForum !== false
+          const [newsHits, forumHits] = await Promise.all([
+            wantNews ? checkNewsForPlace(p, newsQueries, mustKey) : Promise.resolve([]),
+            wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn) : Promise.resolve([]),
+          ])
+          const combined = [...newsHits, ...forumHits]
+          if (!combined.length) continue
+          results.push({
+            label: String(p.label),
+            hash: String(p.hash || ''),
+            cat: p.cat ? String(p.cat) : '',
+            items: combined.slice(0, 15).map((it) => ({
+              title: String(it.title),
+              url: String(it.url),
+              kind: it.kind === 'forum' ? 'forum' : 'news',
+            })),
+          })
+        }
+        return new Response(JSON.stringify({ places: results }), {
+          headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        })
+      } catch {
+        return new Response(JSON.stringify({ places: [] }), {
+          status: 400,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
     if (url.pathname === '/push/test' && req.method === 'POST') {
       const vapid = await getOrCreateVapid(env)
       if (!vapid) return new Response('Push not available', { status: 503, headers: cors })

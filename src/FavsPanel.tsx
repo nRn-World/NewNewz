@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { canUseNotifications, isStandaloneApp } from './androidBridge'
 import Compare from './Compare'
 import type { Lang } from './i18n'
 import { type Place, type Quiet, QUIET0, getWorkerUrl, label, search, sendTestPush, setWorkerUrl } from './lib'
@@ -23,6 +24,7 @@ type Props = {
   mineBusy: boolean
   onOpenMyPaper: () => void
   onOpenFav: (f: Place) => void
+  onOpenInstall?: () => void
   t: T
 }
 
@@ -43,6 +45,7 @@ export default function FavsPanel({
   mineBusy,
   onOpenMyPaper,
   onOpenFav,
+  onOpenInstall,
   t,
 }: Props) {
   const [favCat, setFavCat] = useState('')
@@ -140,7 +143,7 @@ export default function FavsPanel({
     }
     setAddrQuery('')
     setAddrHits([])
-    if ('Notification' in window && Notification.permission === 'default') {
+    if (canUseNotifications() && perm === 'default') {
       onEnableNotify()
     }
   }
@@ -308,14 +311,12 @@ export default function FavsPanel({
 
       {isIosBrowser && <div className="note">{t('iosPushHint')}</div>}
 
-      {perm !== 'granted' && 'Notification' in window && (
+      {perm !== 'granted' && canUseNotifications() && (
         <div className="note">
           {perm === 'denied' ? t('notifyDenied') : t('notifyOff')}{' '}
-          {perm !== 'denied' && (
-            <button className="linkbtn" onClick={onEnableNotify}>
-              {t('notifyEnable')}
-            </button>
-          )}
+          <button className="linkbtn" onClick={onEnableNotify}>
+            {t('notifyEnable')}
+          </button>
         </div>
       )}
 
@@ -323,7 +324,7 @@ export default function FavsPanel({
         <button className="chip on" style={{ padding: '4px 10px' }} disabled={!favs.length || mineBusy} onClick={onOpenMyPaper}>
           ▤ {mineBusy ? '…' : t('myPaper')}
         </button>
-        {'Notification' in window && (
+        {canUseNotifications() && (
           <button
             type="button"
             className="chip"
@@ -332,6 +333,11 @@ export default function FavsPanel({
             disabled={testState === 'sending'}
           >
             🔔 {testState === 'done' ? t('testSent') : testState === 'sending' ? '…' : t('testPush')}
+          </button>
+        )}
+        {!isStandaloneApp() && onOpenInstall && (
+          <button type="button" className="chip" style={{ padding: '4px 10px' }} onClick={onOpenInstall}>
+            📲 {t('install')}
           </button>
         )}
         {favs.length >= 2 && (

@@ -1,3 +1,9 @@
+import {
+  isNativeAndroidApp,
+  notifyViaNativeAndroid,
+  requestAppNotificationPermission,
+  syncNativeAndroidFavorites,
+} from './androidBridge'
 import { norm } from './areas'
 import { clusterArticles, type RelatedItem } from './cluster'
 import { editionFor, wordsFor } from './editions'
@@ -1733,8 +1739,9 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from(rawData, (c) => c.charCodeAt(0))
 }
 
-/** Shows a native notification safely on Android, iOS Home-Screen PWA, and Desktop browsers via the Service Worker. */
+/** Shows a native notification safely on Android APK, Android/iOS Home-Screen PWA, and Desktop browsers. */
 export async function showAppNotification(title: string, body: string, url = './', tag = 'newzlocal'): Promise<void> {
+  if (notifyViaNativeAndroid(title, body, url, tag)) return
   if (!('Notification' in window) || Notification.permission !== 'granted') return
   try {
     if ('serviceWorker' in navigator) {
@@ -1760,6 +1767,7 @@ export async function showAppNotification(title: string, body: string, url = './
 }
 
 export async function syncPushSubscription(favs: Place[], lang: string, quietMap: Record<string, Quiet>): Promise<boolean> {
+  if (syncNativeAndroidFavorites(favs, lang, quietMap, API)) return true
   if (!API || !('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return false
   try {
     let pubKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
@@ -1806,8 +1814,13 @@ export async function syncPushSubscription(favs: Place[], lang: string, quietMap
   }
 }
 
-/** Triggers a real end-to-end encrypted Web Push test from the Cloudflare Worker (with local SW fallback). */
+/** Triggers a real end-to-end encrypted Web Push / Native Android APK test notification. */
 export async function sendTestPush(title: string, body: string): Promise<'push' | 'local' | 'failed'> {
+  if (isNativeAndroidApp()) {
+    const p = await requestAppNotificationPermission()
+    if (p !== 'granted') return 'failed'
+    return notifyViaNativeAndroid(title, body, './', 'newzlocal-test') ? 'push' : 'failed'
+  }
   if (!('Notification' in window)) return 'failed'
   if (Notification.permission !== 'granted') {
     const p = await Notification.requestPermission()
