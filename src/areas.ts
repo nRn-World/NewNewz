@@ -65,7 +65,7 @@ export const norm = (s: string) =>
     .replace(/[\u0300-\u036f\u064b-\u065f\u0670]/g, '')
     .normalize('NFC')
     .replace(ADMIN_RE, ' ')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ')
     .trim()
 
 export const polys = (g: Area['geometry']) => (g.type === 'Polygon' ? [g.coordinates as Pos[][]] : (g.coordinates as Pos[][][]))

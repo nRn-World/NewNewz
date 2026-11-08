@@ -60,6 +60,7 @@ export function clusterArticles(articles: Article[], scope = ''): Article[] {
         sameEvent(c.tokens, toks),
     )
     if (match) {
+      if (art.police) match.lead.police = true
       if (!match.urls.has(art.url)) {
         match.urls.add(art.url)
         match.also.push({ url: art.url, title: art.title, source: art.source, date: art.date, orig: art.orig })

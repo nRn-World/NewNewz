@@ -2,7 +2,7 @@
 
 All edge backend logic for **NewzLocal** lives in this zero-dependency Cloudflare Worker (`worker/`):
 
-- **CORS Proxy Routes:** Bing News (`/bn`), Google News (`/gn`), Reddit (`/rd`), Flashback (`/fb`), Ekşi Sözlük (`/eksi`), Menéame (`/meneame`), and inline Reader metadata (`/meta`)
+- **CORS Proxy Routes:** Bing News (`/bn`), Google News (`/gn`), Official Police Feeds (`/police-feed`, strict HTTPS allowlist), Reddit (`/rd`), Flashback (`/fb`), Ekşi Sözlük (`/eksi`), Menéame (`/meneame`), and inline Reader metadata (`/meta`)
 - **Background Mobile Web Push (`/push/*`):**
   - `GET /push/vapid` — Automatically generates and persists an ECDSA P-256 VAPID keypair inside Cloudflare KV (`SUBS_KV`) when custom VAPID secrets are not configured
   - `POST /push/subscribe` — Stores/updates encrypted push subscriptions, watched places (with `alertNews` / `alertForum` flags), topic filters, and quiet hours
