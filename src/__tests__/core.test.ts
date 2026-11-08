@@ -11,8 +11,10 @@ import {
   flashbackCreated,
   inQuiet,
   mentionsPlace,
+  parseBingRssXml,
   parseFlashbackDate,
   parseGdeltDate,
+  parseRss2JsonPayload,
   placeAliases,
   rankImportantForum,
   rankMostCovered,
@@ -25,7 +27,7 @@ import { circle, rings } from '../overpass'
 import { STOP, hotWords, topicCounts, topicsOf } from '../topics'
 import { decodePlace, encodePlace, readHashPlace } from '../urlState'
 // @ts-expect-error Worker module is plain ESM JS
-import { encryptWebPush, getOrCreateVapid, signVapidJwt } from '../../worker/index.js'
+import worker, { encryptWebPush, getOrCreateVapid, signVapidJwt } from '../../worker/index.js'
 
 const art = (title: string, source = 'SVT', hoursAgo = 1, extra: Partial<Article> = {}): Article => ({
   url: `https://example.com/${encodeURIComponent(title)}-${source}`,
@@ -232,8 +234,35 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
       ],
     }
     const t = target(p, 0)
-    expect(t.queries).toEqual(['"Borgarfjordsgatan" "Kista"', '"Borgarfjordsgatan" "Stockholm"', '"Borgarfjordsgatan"'])
+    expect(t.queries).toEqual([
+      '"Borgarfjordsgatan" "Kista"',
+      '"Borgarfjordsgatan" "Stockholm"',
+      '"Borgarfjordsgatan" Kista',
+      '"Borgarfjordsgatan" Stockholm',
+      '"Borgarfjordsgatan"',
+    ])
     expect(t.key).toBe('borgarfjordsgatan')
+  })
+
+  it('includes unquoted city context and standalone exact queries for 4–5 letter districts like Husby and Kista', () => {
+    const husby: Place = {
+      lat: 59.409,
+      lon: 17.927,
+      cc: 'SE',
+      parts: [
+        { level: 'district', name: 'Husby' },
+        { level: 'city', name: 'Stockholm' },
+        { level: 'country', name: 'Sverige' },
+      ],
+    }
+    const t = target(husby, 0)
+    expect(t.queries).toContain('"Husby" "Stockholm"')
+    expect(t.queries).toContain('"Husby" Stockholm')
+    expect(t.queries).toContain('"Husby"')
+    expect(mentionsPlace('Husby FF tog hem guldet i cupen', t.aliases)).toBe(true)
+    expect(mentionsPlace('Lastbil fastnade under bro i Husby', t.aliases)).toBe(true)
+    expect(mentionsPlace('Tre torg i Husby rustas upp', t.aliases)).toBe(true)
+    expect(mentionsPlace('Allmän trafikolycka i centrala Stockholm', t.aliases)).toBe(false)
   })
 
   it('prevents metropolitan capitals like Diyarbakır from being inverted under inner sub-municipalities like Sur', () => {
@@ -417,5 +446,49 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     expect(hotNews[1].title).toContain('översvämning')
     expect(hotNews[2].title).toContain('Översvämning')
     expect(hotNews[3].title).toContain('parkering')
+  })
+
+  it('parses Bing RSS XML, rss2json fallback payloads, and allows Worker CORS on preview and production origins', async () => {
+    const bingXml = `<?xml version="1.0" encoding="utf-8"?><rss version="2.0" xmlns:News="http://www.bing.com/schema/news"><channel><item><title>Husby FF tog hem guldet</title><link>https://www.bing.com/news/apiclick.aspx?url=https%3A%2F%2Fwww.mitti.se%2Fhusby-ff</link><description>Stor fest i Husby i helgen.</description><pubDate>Fri, 06 Nov 2026 10:00:00 GMT</pubDate><News:Source>Mitt i</News:Source></item></channel></rss>`
+    const parsedBing = parseBingRssXml(bingXml, 'sv')
+    expect(parsedBing).toHaveLength(1)
+    expect(parsedBing[0].url).toBe('https://www.mitti.se/husby-ff')
+    expect(parsedBing[0].source).toBe('Mitt i')
+
+    expect(() => parseBingRssXml('<html><body>Consent</body></html>', 'sv')).toThrow('err.source')
+
+    const rss2json = JSON.stringify({
+      status: 'ok',
+      items: [
+        {
+          title: 'Lastbil fastnade under bro i Husby - Nyhetsbyrån Järva',
+          pubDate: '2026-11-05 14:20:00',
+          link: 'https://www.nyhetsbyranjarva.se/lastbil-i-husby/',
+          description: 'Trafiken påverkades under eftermiddagen i Husby.',
+        },
+      ],
+    })
+    const parsedJson = parseRss2JsonPayload(rss2json, 'sv')
+    expect(parsedJson).toHaveLength(1)
+    expect(parsedJson[0].title).toBe('Lastbil fastnade under bro i Husby')
+    expect(parsedJson[0].source).toBe('Nyhetsbyrån Järva')
+
+    const preflight = await worker.fetch(
+      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/bn?q=Husby', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://5173-sandbox.e2b.app' },
+      }),
+      {},
+    )
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe('https://5173-sandbox.e2b.app')
+
+    const keyedBlocked = await worker.fetch(
+      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/gnews/search?q=Husby', {
+        headers: { Origin: 'https://evil.example.com' },
+      }),
+      { GNEWS_KEY: 'secret' },
+    )
+    expect(keyedBlocked.status).toBe(403)
   })
 })

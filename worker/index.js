@@ -16,7 +16,8 @@ function isAllowedOrigin(origin, env) {
   if (!origin) return true
   const extra = (env?.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
   if ([...DEFAULT_ALLOWED, ...extra].includes(origin)) return true
-  if (/^https:\/\/[a-z0-9-]+\.e2b\.app$/i.test(origin)) return true
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true
+  if (/^https:\/\/([a-z0-9-]+\.)*(nrnworld\.one|github\.io|e2b\.app|e2b\.dev|arena\.ai|arena\.site|lmarena\.ai)$/i.test(origin)) return true
   return false
 }
 
@@ -178,9 +179,12 @@ function buildPlaceQueries(place) {
   const small = own.level === 'street' || own.level === 'district'
   const newsQueries = small && ctx
     ? [
-        ...(hasHouseNo ? [`"${own.name}" "${ctx.name}"`] : []),
-        `"${cleanOwn}" "${ctx.name}"`,
-        ...(cleanOwn.length >= 6 ? [`"${cleanOwn}"`] : []),
+        ...new Set([
+          ...(hasHouseNo ? [`"${own.name}" "${ctx.name}"`] : []),
+          `"${cleanOwn}" "${ctx.name}"`,
+          `"${cleanOwn}" ${ctx.name}`,
+          ...(cleanOwn.length >= 4 ? [`"${cleanOwn}"`] : []),
+        ]),
       ]
     : [`"${cleanOwn}"`]
   const forumQueries = [
@@ -287,8 +291,9 @@ export default {
     const url = new URL(req.url)
     const origin = req.headers.get('Origin') ?? ''
     const originOk = isAllowedOrigin(origin, env)
+    const isHttpOrigin = /^https?:\/\/[a-z0-9.:-]+$/i.test(origin)
     const cors = {
-      'Access-Control-Allow-Origin': origin && originOk ? origin : DEFAULT_ALLOWED[0],
+      'Access-Control-Allow-Origin': isHttpOrigin ? origin : '*',
       Vary: 'Origin',
     }
 
@@ -298,8 +303,6 @@ export default {
         headers: { ...cors, 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' },
       })
     }
-
-    if (!originOk) return new Response('Forbidden origin', { status: 403, headers: cors })
 
     // --- Web Push endpoints ---
     if (url.pathname === '/push/vapid' && req.method === 'GET') {
@@ -485,14 +488,30 @@ export default {
     const prefix = Object.keys(ORIGINS).find((p) => url.pathname.startsWith(p + '/'))
     if (req.method !== 'GET' || !prefix) return new Response('Not found', { status: 404, headers: cors })
     try {
+      const isRss = prefix === '/gn' || prefix === '/bn'
+      const upstreamHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: isRss ? 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8' : '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        ...(prefix === '/gn'
+          ? { Cookie: 'SOCS=CAESHAgBEhJnd3NfMjAyNDAxMDEtMF9SQzIaAmVuIAEaBgiAo_CmBg; CONSENT=YES+cb.20240101-01-p0.en+FX+999' }
+          : {}),
+      }
       const r = await fetch(ORIGINS[prefix] + url.pathname.slice(prefix.length) + url.search, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-        cf: { cacheTtl: 60, cacheEverything: true },
-        signal: AbortSignal.timeout(12_000),
+        headers: upstreamHeaders,
+        cf: { cacheTtl: 60, cacheEverything: !isRss },
+        signal: AbortSignal.timeout(10_000),
       })
+      if (isRss) {
+        const txt = await r.text()
+        if (!r.ok || !/<rss\b|<channel\b|<feed\b/i.test(txt)) {
+          return new Response('Upstream non-RSS response', { status: 502, headers: { ...cors, 'Cache-Control': 'no-store' } })
+        }
+        return new Response(txt, {
+          status: 200,
+          headers: { ...cors, 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
+        })
+      }
       return new Response(r.body, {
         status: r.status,
         headers: { ...cors, 'Content-Type': r.headers.get('Content-Type') ?? 'text/plain', 'Cache-Control': 'public, max-age=60' },
