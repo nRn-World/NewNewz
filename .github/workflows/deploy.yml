@@ -77,36 +77,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Ensure GitHub Pages is enabled
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          api="https://api.github.com/repos/${{ github.repository }}/pages"
-          code=$(curl -sS -o /tmp/pages.json -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$api" || true)
-          if [ "$code" = "200" ]; then
-            echo "Pages is already enabled for this repository."
-            exit 0
-          fi
-          if [ "$code" != "404" ]; then
-            echo "::error title=Pages API error::GET /pages returned HTTP $code"
-            exit 1
-          fi
-          echo "Pages is not enabled for this repository; enabling it with the GitHub Actions source."
-          create=$(curl -sS -o /tmp/pages-create.json -w '%{http_code}' -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'Content-Type: application/json' \
-            --data '{"build_type":"workflow"}' "$api" || true)
-          cat /tmp/pages-create.json
-          if [ "$create" != "201" ] && [ "$create" != "409" ]; then
-            echo "::error title=Could not enable Pages::POST /pages returned HTTP $create. Enable it manually: Settings -> Pages -> Build and deployment -> Source: GitHub Actions."
-            exit 1
-          fi
-      - name: Configure Pages
-        id: pages
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: actions/configure-pages@v5
       - run: npm ci
       - run: npm run lint
       - run: npm test
@@ -145,6 +115,36 @@ jobs:
             fi
           fi
           ANDROID_KEYSTORE_B64="$KS_B64" bash android/build-apk.sh dist
+      - name: Ensure GitHub Pages is enabled
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          api="https://api.github.com/repos/${{ github.repository }}/pages"
+          code=$(curl -sS -o /tmp/pages.json -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$api" || true)
+          if [ "$code" = "200" ]; then
+            echo "Pages is already enabled for this repository."
+            exit 0
+          fi
+          if [ "$code" != "404" ]; then
+            echo "::error title=Pages API error::GET /pages returned HTTP $code"
+            exit 1
+          fi
+          echo "Pages is not enabled for this repository; enabling it with the GitHub Actions source."
+          create=$(curl -sS -o /tmp/pages-create.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'Content-Type: application/json' \
+            --data '{"build_type":"workflow"}' "$api" || true)
+          cat /tmp/pages-create.json
+          if [ "$create" != "201" ] && [ "$create" != "409" ]; then
+            echo "::error title=GitHub Pages is not enabled::POST /pages returned HTTP $create. The workflow token cannot create the Pages site. Fix it once in Settings -> Pages -> Build and deployment -> Source: GitHub Actions, then re-run this workflow."
+            exit 1
+          fi
+      - name: Configure Pages
+        id: pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
       - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
