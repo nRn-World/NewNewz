@@ -379,9 +379,10 @@ export function useGlobe({
       const country = p.parts[p.parts.length - 1]
       if (p.cc && country?.level === 'country') {
         const stateHint = p.parts.find((x) => x.level === 'state')?.name ?? (targetPart.level === 'city' ? targetPart.name : undefined)
+        const cc = p.cc
         const run = () =>
           showAreas(
-            { cc: p.cc, country: country.name },
+            { cc, country: country.name },
             stateHint,
             undefined,
             ['street', 'district', 'city'].includes(targetPart.level) ? [p.lon, p.lat] : undefined,
