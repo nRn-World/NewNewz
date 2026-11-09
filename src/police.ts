@@ -1,3 +1,4 @@
+import { nativeAndroidFetchText } from './androidBridge'
 import { norm } from './areas'
 import { editionFor } from './editions'
 import type { Article, Part, Place } from './lib'
@@ -1033,6 +1034,10 @@ export function policeSearchQueries(
 const directFeedCache = new Map<string, { at: number; items: Article[] }>()
 
 async function fetchPoliceRawText(targetUrl: string, apiBase: string, signal?: AbortSignal): Promise<string> {
+  // 1. Direct device fetch inside native Android APK (0 Cloudflare Worker requests!)
+  const directAndroid = await nativeAndroidFetchText(targetUrl, { signal })
+  if (directAndroid && directAndroid.trim().length > 20) return directAndroid
+
   const timeoutSig = signal ? AbortSignal.any([signal, AbortSignal.timeout(5500)]) : AbortSignal.timeout(5500)
   if (apiBase) {
     try {

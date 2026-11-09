@@ -443,7 +443,7 @@ export default function App() {
     const check = async () => {
       let seen: Record<string, string[]> = {}
       try { seen = JSON.parse(localStorage.getItem('newzlocal.seen') ?? '{}') } catch { /* start over */ }
-      for (const f of favs.slice(0, 12)) {
+      for (const f of favs.slice(0, 25)) {
         if (ctrl.signal.aborted) return
         try {
           const key = label(f)
@@ -543,7 +543,7 @@ export default function App() {
     setMineBusy(true)
     try {
       const lists = await Promise.all(
-        favs.slice(0, 8).map(async (f) =>
+        favs.slice(0, 15).map(async (f) =>
           (await news(f, 0, 15, false).catch(() => ({ articles: [] as Article[] }))).articles.map((a) => ({
             ...a,
             source: `${label(f)} · ${a.source}`,

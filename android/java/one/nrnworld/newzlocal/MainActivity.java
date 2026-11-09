@@ -23,6 +23,14 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
+
 public class MainActivity extends Activity {
     private static final String HOME_URL = "https://nrnworld.one/NewzLocal/";
     private static final int REQ_NOTIFICATIONS = 1001;
@@ -350,5 +358,72 @@ public class MainActivity extends Activity {
             t.setDaemon(true);
             t.start();
         }
+
+        @JavascriptInterface
+        public void fetchAsync(final String reqId, final String targetUrl, final String cookie, final String encoding) {
+            if (reqId == null || targetUrl == null || !targetUrl.startsWith("https://")) {
+                deliverFetchResult(reqId, false, "");
+                return;
+            }
+            Thread t = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    HttpURLConnection conn = null;
+                    try {
+                        conn = (HttpURLConnection) new URL(targetUrl).openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setConnectTimeout(6500);
+                        conn.setReadTimeout(7500);
+                        conn.setInstanceFollowRedirects(true);
+                        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                        conn.setRequestProperty("Accept", "application/rss+xml, application/xml, application/json, text/xml, text/html;q=0.9, */*;q=0.8");
+                        conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
+                        if (cookie != null && !cookie.isEmpty()) {
+                            conn.setRequestProperty("Cookie", cookie);
+                        }
+                        int status = conn.getResponseCode();
+                        if (status < 200 || status >= 300) {
+                            deliverFetchResult(reqId, false, "");
+                            return;
+                        }
+                        InputStream is = conn.getInputStream();
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = is.read(buf)) != -1) {
+                            bos.write(buf, 0, n);
+                        }
+                        is.close();
+                        Charset cs = "iso-8859-1".equalsIgnoreCase(encoding)
+                                ? StandardCharsets.ISO_8859_1
+                                : StandardCharsets.UTF_8;
+                        deliverFetchResult(reqId, true, new String(bos.toByteArray(), cs));
+                    } catch (Exception e) {
+                        deliverFetchResult(reqId, false, "");
+                    } finally {
+                        if (conn != null) conn.disconnect();
+                    }
+                }
+            });
+            t.setDaemon(true);
+            t.start();
+        }
+    }
+
+    private void deliverFetchResult(final String reqId, final boolean ok, final String body) {
+        if (reqId == null || webView == null) return;
+        final String safeId = JSONObject.quote(reqId);
+        final String safeBody = ok ? JSONObject.quote(body) : "\"\"";
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (webView != null) {
+                    webView.evaluateJavascript(
+                            "window.__onAndroidFetch && window.__onAndroidFetch(" + safeId + "," + (ok ? "true" : "false") + "," + safeBody + ");",
+                            null
+                    );
+                }
+            }
+        });
     }
 }
