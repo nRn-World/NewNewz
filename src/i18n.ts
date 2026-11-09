@@ -8,6 +8,7 @@ export const LANGS = [
   { code: 'es', name: 'Español', flag: 'es' },
   { code: 'fr', name: 'Français', flag: 'fr' },
   { code: 'de', name: 'Deutsch', flag: 'de' },
+  { code: 'ku', name: 'Kurdî', flag: 'ku' },
 ] as const
 export type Lang = (typeof LANGS)[number]['code']
 
@@ -62,7 +63,7 @@ const dicts: Record<Lang, Dict> = {
     search: 'Sök adress, stad, land…', searchLabel: 'Sök plats', news: 'Nyheter', favs: 'Favoriter', noFavs: 'Inga favoriter än.',
     hint: 'Snurra jorden och klicka på en plats, eller sök en adress.', loading: 'Hämtar nyheter…',
     widened: 'Inga nyheter för exakt plats, visar för {scope}.', none: 'Inga nyheter hittades.',
-    footer: 'Rubriker via Google News. Klicka för att läsa hos källan.', favorite: 'Favorit', language: 'Språk', allCats: 'Alla', newCat: 'Ny kategori', noCat: 'Ingen kategori', uncat: 'Utan kategori', category: 'Kategori', delCat: 'Ta bort kategori', newOnly: '{n} nya sedan senast.', showAll: 'Visa alla', 'notifyOff': 'Notiser är av.', 'notifyDenied': 'Notiser är blockerade: tillåt dem för sidan i webbläsarens adressfält.', 'notifyEnable': 'Slå på', 'notifyOn': 'Notiser är på', 'notifyHint': 'Du får notis om nya nyheter så länge NewzLocal är öppet i en flik.', paper: 'Tidning', page: 'Sida', forum: 'Forum', noForum: 'Inga forumsinlägg hittades.', forums: 'Sök i forumen:', streets: 'Gator', streetFilter: 'Filtrera gator…', loadingStreets: 'Hämtar gator…', noResults: 'Inga platser hittades.', updated: 'Live · uppdaterad {time}', areas: 'Hämtar kartområden…', 'err.areas': 'Kartområden kunde inte hämtas',
+    footer: 'Rubriker via Google News. Klicka för att läsa hos källan.', favorite: 'Favorit', language: 'Språk', allCats: 'Alla', newCat: 'Ny kategori', noCat: 'Ingen kategori', uncat: 'Utan kategori', category: 'Kategori', delCat: 'Ta bort kategori', newOnly: '{n} nya sedan senast.', showAll: 'Visa alla', 'notifyOff': 'Notiser är av.', 'notifyDenied': 'Notiser är blockerade: tillåt dem för sidan i webbläsarens adressfält.', 'notifyEnable': 'Slå på', 'notifyOn': 'Notiser är på', 'notifyHint': 'Du får notis om nya nyheter så länge NewzLocal är öppet i en flik.', paper: 'Tidning', page: 'Sida', forum: 'Forum', noForum: 'Inga foruminlägg hittades.', forums: 'Sök i forumen:', streets: 'Gator', streetFilter: 'Filtrera gator…', loadingStreets: 'Hämtar gator…', noResults: 'Inga platser hittades.', updated: 'Live · uppdaterad {time}', areas: 'Hämtar kartområden…', 'err.areas': 'Kartområden kunde inte hämtas',
     'err.search': 'Sökningen misslyckades', 'err.place': 'Platsen kunde inte hittas',
     'err.source': 'Nyhetskällan svarade inte', 'err.busy': 'Nyhetskällan är upptagen, försök igen om en stund',
   },
@@ -105,6 +106,15 @@ const dicts: Record<Lang, Dict> = {
     footer: 'Schlagzeilen über Google News. Klicken, um bei der Quelle zu lesen.', favorite: 'Favorit', language: 'Sprache', allCats: 'Alle', newCat: 'Neue Kategorie', noCat: 'Keine Kategorie', uncat: 'Ohne Kategorie', category: 'Kategorie', delCat: 'Kategorie löschen', newOnly: '{n} neu seit deinem letzten Besuch.', showAll: 'Alle anzeigen', 'notifyOff': 'Benachrichtigungen sind aus.', 'notifyDenied': 'Benachrichtigungen blockiert: erlaube sie für diese Seite in der Adressleiste.', 'notifyEnable': 'Einschalten', 'notifyOn': 'Benachrichtigungen an', 'notifyHint': 'Du wirst über neue Schlagzeilen informiert, solange NewzLocal in einem Tab geöffnet ist.', paper: 'Zeitung', page: 'Seite', forum: 'Foren', noForum: 'Keine Forenbeiträge gefunden.', forums: 'In Foren suchen:', streets: 'Straßen', streetFilter: 'Straßen filtern…', loadingStreets: 'Straßen werden geladen…', noResults: 'Keine Orte gefunden.', updated: 'Live · aktualisiert {time}', areas: 'Kartenbereiche werden geladen…', 'err.areas': 'Kartenbereiche konnten nicht geladen werden',
     'err.search': 'Suche fehlgeschlagen', 'err.place': 'Ort konnte nicht gefunden werden',
     'err.source': 'Die Nachrichtenquelle hat nicht geantwortet', 'err.busy': 'Die Nachrichtenquelle ist ausgelastet, bitte gleich erneut versuchen',
+  },
+  // Kurmancî (Latin script)
+  ku: {
+    search: 'Li navnîşan, bajar, welat bigere…', searchLabel: 'Li cihekî bigere', news: 'Nûçe', favs: 'Bijarte', noFavs: 'Hê bijarte tune ne.',
+    hint: 'Cîhanê bizivirîne û li cihekî bitikîne, an jî li navnîşanekê bigere.', loading: 'Nûçe tên barkirin…',
+    widened: 'Ji bo cihê rast nûçe tune ne, {scope} tê nîşandan.', none: 'Nûçe nehatin dîtin.',
+    footer: 'Sernivîs bi rêya Google News. Ji bo xwendina li çavkaniyê bitikîne.', favorite: 'Bijarte', language: 'Ziman', allCats: 'Hemû', newCat: 'Kategoriya nû', noCat: 'Bê kategorî', uncat: 'Bêkategorî', category: 'Kategorî', delCat: 'Kategoriyê jê bibe', newOnly: '{n} nûçeyên nû ji serdana te ya dawî ve.', showAll: 'Hemûyan nîşan bide', notifyOff: 'Agahdarî girtî ne.', notifyDenied: 'Agahdarî hatine astengkirin: di rêzika navnîşanê ya gerokê de ji bo vê malperê destûr bide.', notifyEnable: 'Veke', notifyOn: 'Agahdarî vekirî ne', notifyHint: 'Heta ku NewzLocal di tabekê de vekirî be, tu ji sernivîsên nû agahdar dibî.', paper: 'Rojname', page: 'Rûpel', forum: 'Forum', noForum: 'Şandiyên forumê nehatin dîtin.', forums: 'Li foruman bigere:', streets: 'Kolan', streetFilter: 'Kolanan parzûn bike…', loadingStreets: 'Kolan tên barkirin…', noResults: 'Cih nehat dîtin.', updated: 'Zindî · {time} hat nûkirin', areas: 'Herêmên nexşeyê tên barkirin…', 'err.areas': 'Herêmên nexşeyê nehatin barkirin',
+    'err.search': 'Lêgerîn bi ser neket', 'err.place': 'Cih nehat dîtin',
+    'err.source': 'Çavkaniya nûçeyan bersiv neda', 'err.busy': 'Çavkaniya nûçeyan mijûl e, piştî demeke kurt dîsa biceribîne',
   },
 }
 

@@ -5,6 +5,7 @@ import android.app.job.JobScheduler;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -128,8 +129,81 @@ public final class FavoriteChecker {
         String s = raw.trim()
                 .replaceAll("(?i)\\b(?:no|nr|lgh|apt|unit)[:.\\s-]*\\d+[a-z]?\\b", "")
                 .replaceAll("(?i)\\s+\\d+[a-z]?(?:[-/]\\d+[a-z]?)?$", "")
+                .replaceAll("(?i)^\\d+[a-z]?\\s+", "")
                 .trim();
         return s.length() >= 2 ? s : raw.trim();
+    }
+
+    private static final Pattern NUM_ENTITY_RE = Pattern.compile("&#(x?)([0-9a-fA-F]+);");
+
+    /** RSS titles arrive XML-escaped ("Bob&#39;s &amp; Co"); a notification must show the real characters. */
+    private static String decodeEntities(String s) {
+        if (s == null || s.indexOf('&') < 0) return s == null ? "" : s;
+        StringBuffer sb = new StringBuffer();
+        Matcher m = NUM_ENTITY_RE.matcher(s);
+        while (m.find()) {
+            String repl = m.group(0);
+            try {
+                int cp = Integer.parseInt(m.group(2), m.group(1).isEmpty() ? 10 : 16);
+                repl = new String(Character.toChars(cp));
+            } catch (Exception ignored) {
+            }
+            m.appendReplacement(sb, Matcher.quoteReplacement(repl));
+        }
+        m.appendTail(sb);
+        return sb.toString()
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&");
+    }
+
+    /** Bing wraps every article in a tracking redirect that changes between requests; the article's own address does not. */
+    private static String articleUrl(String rawLink) {
+        String link = decodeEntities(rawLink).trim();
+        try {
+            String inner = Uri.parse(link).getQueryParameter("url");
+            if (inner != null && (inner.startsWith("https://") || inner.startsWith("http://"))) return inner;
+        } catch (Exception ignored) {
+        }
+        return link;
+    }
+
+    /** Topic patterns come from the web app (one source of truth); a pattern this regex engine rejects is skipped. */
+    private static Map<String, Pattern> compileTopics(JSONObject topics) {
+        Map<String, Pattern> out = new HashMap<String, Pattern>();
+        if (topics == null) return out;
+        JSONArray names = topics.names();
+        if (names == null) return out;
+        for (int i = 0; i < names.length(); i++) {
+            String id = names.optString(i);
+            try {
+                out.put(id, Pattern.compile(topics.optString(id), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
+            } catch (Exception ignored) {
+            }
+        }
+        return out;
+    }
+
+    /** A favourite limited to certain topics (e.g. only crime and accidents) is alerted about those alone. */
+    private static JSONArray wantedByTopic(JSONArray items, JSONArray alert, Map<String, Pattern> topics) {
+        if (alert == null || alert.length() == 0 || topics.isEmpty()) return items;
+        JSONArray out = new JSONArray();
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject it = items.optJSONObject(i);
+            if (it == null) continue;
+            String title = it.optString("title", "");
+            for (int a = 0; a < alert.length(); a++) {
+                String id = alert.optString(a);
+                Pattern re = topics.get(id);
+                if (("Police".equals(id) && it.optBoolean("police", false)) || (re != null && re.matcher(title).find())) {
+                    out.put(it);
+                    break;
+                }
+            }
+        }
+        return out;
     }
 
     private static String httpGetString(String urlStr, Charset charset, String ua) {
@@ -171,7 +245,7 @@ public final class FavoriteChecker {
      * Direct on-device polling from the Android phone (0 Cloudflare Worker requests, scales to unlimited users!).
      * Falls back to Worker `/push/poll` only if direct network fetches fail completely.
      */
-    private static JSONArray pollDirectOnDevice(JSONArray places) {
+    private static JSONArray pollDirectOnDevice(JSONArray places, Map<String, Pattern> topics) {
         JSONArray results = new JSONArray();
         JSONArray cachedPolisen = null;
         boolean triedPolisen = false;
@@ -256,6 +330,7 @@ public final class FavoriteChecker {
                                         hit.put("title", "\uD83D\uDEE1 Polisen \u00B7 " + (!evType.isEmpty() ? (evType + ": " + (!evSum.isEmpty() ? evSum : evName)) : evName));
                                         hit.put("url", evUrl.startsWith("http") ? evUrl : ("https://polisen.se" + evUrl));
                                         hit.put("kind", "news");
+                                        hit.put("police", true);
                                         items.put(hit);
                                         pCount++;
                                     }
@@ -278,9 +353,10 @@ public final class FavoriteChecker {
                                     String l = firstGroup(LINK_RE.matcher(blk));
                                     if (!t.isEmpty() && !l.isEmpty()) {
                                         JSONObject hit = new JSONObject();
-                                        hit.put("title", "\uD83D\uDEE1 Phuket Police \u00B7 " + t);
-                                        hit.put("url", l);
+                                        hit.put("title", "\uD83D\uDEE1 Phuket Police \u00B7 " + decodeEntities(t));
+                                        hit.put("url", decodeEntities(l));
                                         hit.put("kind", "news");
+                                        hit.put("police", true);
                                         items.put(hit);
                                         pkCount++;
                                     }
@@ -300,8 +376,10 @@ public final class FavoriteChecker {
                                 String l = firstGroup(LINK_RE.matcher(blk));
                                 if (!t.isEmpty() && !l.isEmpty() && hasPlaceWord(t + " " + d, mustKey)) {
                                     JSONObject hit = new JSONObject();
-                                    hit.put("title", t);
-                                    hit.put("url", l);
+                                    hit.put("title", decodeEntities(t));
+                                    hit.put("url", articleUrl(l));
+                                    // the address as it was stored before articleUrl(): keeps already-seen stories seen
+                                    hit.put("raw", l);
                                     hit.put("kind", "news");
                                     items.put(hit);
                                 }
@@ -346,7 +424,7 @@ public final class FavoriteChecker {
                                 Matcher fm = FB_RE.matcher(fbHtml);
                                 while (fm.find() && items.length() < 18) {
                                     String href = fm.group(2);
-                                    String ft = fm.group(3).replaceAll("<[^>]+>", "").trim();
+                                    String ft = decodeEntities(fm.group(3).replaceAll("<[^>]+>", "")).trim();
                                     if (!ft.isEmpty() && href != null && hasPlaceWord(ft, mustKey)) {
                                         JSONObject hit = new JSONObject();
                                         hit.put("title", ft);
@@ -362,12 +440,14 @@ public final class FavoriteChecker {
                     sigMemo.put(sig, items);
                 }
 
-                if (items.length() > 0) {
+                // Places sharing one check may still differ in the topics they want
+                JSONArray wanted = wantedByTopic(items, p.optJSONArray("alert"), topics);
+                if (wanted.length() > 0) {
                     JSONObject entry = new JSONObject();
                     entry.put("label", label);
                     entry.put("hash", p.optString("hash", ""));
                     entry.put("cat", p.optString("cat", ""));
-                    entry.put("items", items);
+                    entry.put("items", wanted);
                     results.put(entry);
                 }
             } catch (Exception ignored) {
@@ -454,7 +534,7 @@ public final class FavoriteChecker {
             }
 
             // 1. Poll directly from the user's Android device (0 Cloudflare Worker cost!)
-            JSONArray respPlaces = pollDirectOnDevice(targetPlaces);
+            JSONArray respPlaces = pollDirectOnDevice(targetPlaces, compileTopics(payload.optJSONObject("topics")));
             // 2. Fallback to Cloudflare Worker only if direct fetches were blocked/offline
             if (respPlaces == null) {
                 respPlaces = pollViaWorkerFallback(workerUrl, targetPlaces, payload.optString("lang", "sv"));
@@ -491,7 +571,8 @@ public final class FavoriteChecker {
                     if (it == null) continue;
                     String u = it.optString("url", "");
                     if (u.isEmpty()) continue;
-                    if (!oldSet.contains(u)) {
+                    String rawUrl = it.optString("raw", "");
+                    if (!oldSet.contains(u) && (rawUrl.isEmpty() || !oldSet.contains(rawUrl))) {
                         fresh.add(it);
                     }
                     if (mergedDedup.add(u) && mergedSeen.length() < 250) {

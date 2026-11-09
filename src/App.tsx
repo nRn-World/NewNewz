@@ -12,6 +12,7 @@ import {
 import { norm } from './areas'
 import { type SavedArticle, loadSaved, toggleSavedItem } from './bookmarks'
 import { exportClipCard } from './clipCard'
+import { fullDate, mediumDate, timeAgo } from './dates'
 import FavsPanel from './FavsPanel'
 import { Flag } from './Flags'
 import { LANGS, type Lang, loadLang, saveLang, tr } from './i18n'
@@ -56,11 +57,7 @@ import './index.css'
 type FeedState = { articles: Article[]; scope: string; query: string; exactCount?: number }
 
 const same = (a: Place, b: Place) => label(a) === label(b)
-const ago = (d: Date, lang: Lang) => {
-  const m = Math.max(1, Math.round((Date.now() - d.getTime()) / 60000))
-  const f = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' })
-  return m < 60 ? f.format(-m, 'minute') : m < 1440 ? f.format(-Math.round(m / 60), 'hour') : f.format(-Math.round(m / 1440), 'day')
-}
+const ago = (d: Date, lang: Lang) => timeAgo(d, lang)
 
 export default function App() {
   const [q, setQ] = useState('')
@@ -120,6 +117,7 @@ export default function App() {
   const [streetsOpen, setStreetsOpen] = useState(false)
   const searchAbort = useRef<AbortController | null>(null)
   const popNavRef = useRef(false)
+  const lastHashNav = useRef({ hash: '', at: 0 })
   const panelRef = useRef<HTMLElement>(null)
 
   const t = useCallback((k: Parameters<typeof tr>[1], v?: Record<string, string>) => tr(lang, k, v), [lang])
@@ -127,7 +125,7 @@ export default function App() {
   const unread = Object.fromEntries(Object.entries(freshArts).map(([k, v]) => [k, v.length]))
   const totalUnread = Object.values(unread).reduce((a, b) => a + b, 0)
   const refDate = stamp ?? bootDate
-  const formattedDate = new Intl.DateTimeFormat(lang, { dateStyle: 'full' }).format(refDate)
+  const formattedDate = fullDate(refDate, lang)
 
   const handleSelectFromMap = useCallback((p: Place, initialLevel = 0) => {
     setOnly(null)
@@ -246,6 +244,10 @@ export default function App() {
       }
       const route = readHashPlace(hashStr)
       if (!route) return
+      // A notification tap reaches us twice (the service worker's message and the navigation it triggers);
+      // opening the place once avoids fetching its whole feed twice.
+      if (hashStr === lastHashNav.current.hash && Date.now() - lastHashNav.current.at < 1500) return
+      lastHashNav.current = { hash: hashStr, at: Date.now() }
       popNavRef.current = true
       pickOnGlobe(route.place, true, route.level ?? 0)
       if (route.tab) setTab(route.tab)
@@ -435,7 +437,19 @@ export default function App() {
   useEffect(() => {
     if (!favs.length) return
     const ctrl = new AbortController()
+    let running = false
     const check = async () => {
+      // With many favourites one round outlasts the minute between rounds; two overlapping rounds would each
+      // write their own copy of the seen-list and alert about the same story twice.
+      if (running) return
+      running = true
+      try {
+        await checkOnce()
+      } finally {
+        running = false
+      }
+    }
+    const checkOnce = async () => {
       let seen: Record<string, string[]> = {}
       try { seen = JSON.parse(localStorage.getItem('newzlocal.seen') ?? '{}') } catch { /* start over */ }
       for (const f of favs.slice(0, 25)) {
@@ -453,7 +467,7 @@ export default function App() {
           const old = seen[key]
           const newOnes = old ? combined.filter((a) => !old.includes(a.url)) : []
           const fresh = f.alert?.length
-            ? newOnes.filter((a) => topicsOf(a.orig ?? a.title).some((id) => f.alert!.includes(id)))
+            ? newOnes.filter((a) => topicsOf(a.orig ?? a.title, a.police).some((id) => f.alert!.includes(id)))
             : newOnes
           seen[key] = [...new Set([...combined.map((a) => a.url), ...(old ?? [])])].slice(0, 250)
           if (fresh.length) setFreshArts((u) => ({ ...u, [key]: [...fresh, ...(u[key] ?? [])].slice(0, 50) }))
@@ -613,7 +627,7 @@ export default function App() {
       summary: sum,
       source: a.source,
       place: pName,
-      dateStr: new Intl.DateTimeFormat(lang, { dateStyle: 'medium' }).format(a.date),
+      dateStr: mediumDate(a.date, lang),
       url: a.url,
     })
   }

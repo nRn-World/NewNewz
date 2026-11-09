@@ -4,6 +4,7 @@ on:
     branches: [main, 'arena/**']
     paths:
       - 'worker/**'
+      - 'src/topicRules.ts' # bundled into the Worker
       - '.github/workflows/deploy-worker.yml'
   workflow_dispatch:
 

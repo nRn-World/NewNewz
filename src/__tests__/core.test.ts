@@ -289,7 +289,8 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
       { level: 'city', name: 'Diyarbakır' },
       { level: 'country', name: 'Türkiye' },
     ])
-    expect(target(diyarbakir, 0).queries).toEqual(['"Diyarbakır"'])
+    // the city's Kurdish name is searched as well: Kurdish outlets call it Amed
+    expect(target(diyarbakir, 0).queries).toEqual(['"Diyarbakır"', '"Amed"'])
 
     const gdeltDate = parseGdeltDate('20261108T113000Z')
     expect(gdeltDate.toISOString()).toBe('2026-11-08T11:30:00.000Z')

@@ -103,15 +103,33 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * The only pages this activity will ever load: https://nrnworld.one/NewzLocal... The activity is exported, so any
+     * app on the phone can send it an intent; without the scheme check a "javascript://nrnworld.one/..." link would
+     * run that app's script inside our page, with access to the native bridge.
+     */
+    private static boolean isAppUrl(Uri uri) {
+        if (uri == null) return false;
+        String path = uri.getPath();
+        return "https".equalsIgnoreCase(uri.getScheme())
+                && "nrnworld.one".equalsIgnoreCase(uri.getHost())
+                && uri.getUserInfo() == null
+                && path != null
+                && (path.equals("/NewzLocal") || path.startsWith("/NewzLocal/"));
+    }
+
     private String resolveIntentUrl(Intent intent) {
         if (intent == null) return null;
-        String extraUrl = intent.getStringExtra("open_url");
-        if (extraUrl != null && extraUrl.startsWith("https://nrnworld.one/NewzLocal")) {
-            return extraUrl;
-        }
-        Uri data = intent.getData();
-        if (data != null && "nrnworld.one".equalsIgnoreCase(data.getHost())) {
-            return data.toString();
+        try {
+            String extraUrl = intent.getStringExtra("open_url");
+            if (extraUrl != null && isAppUrl(Uri.parse(extraUrl))) {
+                return extraUrl;
+            }
+            Uri data = intent.getData();
+            if (isAppUrl(data)) {
+                return data.toString();
+            }
+        } catch (Exception ignored) {
         }
         return null;
     }
@@ -142,9 +160,7 @@ public class MainActivity extends Activity {
                 if (uri == null) return false;
                 String scheme = uri.getScheme();
                 if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-                    String host = uri.getHost();
-                    if (host != null && host.equalsIgnoreCase("nrnworld.one")
-                            && (uri.getPath() == null || uri.getPath().startsWith("/NewzLocal"))) {
+                    if (isAppUrl(uri)) {
                         return false;
                     }
                     openExternalBrowser(uri);

@@ -1,7 +1,13 @@
 import type { Lang } from './i18n'
+import { kurdify, kurdistanPlace } from './kurdistan'
 import type { Place } from './lib'
 
-const GLOBAL_POOL: Place[] = [
+const WORLD_POOL: Place[] = [
+  kurdistanPlace(),
+  { lat: 36.1912, lon: 44.0092, cc: 'iq', parts: [{ level: 'city', name: 'Erbil' }, { level: 'country', name: 'Iraq' }] },
+  { lat: 35.5613, lon: 45.4375, cc: 'iq', parts: [{ level: 'city', name: 'Sulaymaniyah' }, { level: 'country', name: 'Iraq' }] },
+  { lat: 36.8679, lon: 42.9489, cc: 'iq', parts: [{ level: 'city', name: 'Duhok' }, { level: 'country', name: 'Iraq' }] },
+  { lat: 37.0522, lon: 41.2317, cc: 'sy', parts: [{ level: 'city', name: 'Qamishli' }, { level: 'country', name: 'Syria' }] },
   { lat: 59.3293, lon: 18.0686, cc: 'se', parts: [{ level: 'city', name: 'Stockholm' }, { level: 'country', name: 'Sverige' }] },
   { lat: 57.7089, lon: 11.9746, cc: 'se', parts: [{ level: 'city', name: 'Göteborg' }, { level: 'country', name: 'Sverige' }] },
   { lat: 55.605, lon: 13.0038, cc: 'se', parts: [{ level: 'city', name: 'Malmö' }, { level: 'country', name: 'Sverige' }] },
@@ -24,6 +30,9 @@ const GLOBAL_POOL: Place[] = [
   { lat: -33.8688, lon: 151.2093, cc: 'au', parts: [{ level: 'city', name: 'Sydney' }, { level: 'country', name: 'Australia' }] },
 ]
 
+// Cities inside Kurdistan are listed under it, exactly as a search or a map click files them.
+const GLOBAL_POOL = WORLD_POOL.map(kurdify)
+
 const BY_LANG: Record<Lang, string[]> = {
   sv: ['Stockholm', 'Göteborg', 'Malmö', 'İstanbul', 'London', 'New York'],
   tr: ['İstanbul', 'Diyarbakır', 'Ankara', 'İzmir', 'Berlin', 'London'],
@@ -32,6 +41,7 @@ const BY_LANG: Record<Lang, string[]> = {
   es: ['Madrid', 'Barcelona', 'São Paulo', 'New York', 'Paris', 'London'],
   fr: ['Paris', 'Marseille', 'London', 'Berlin', 'New York', 'Tokyo'],
   de: ['Berlin', 'München', 'London', 'Paris', 'İstanbul', 'New York'],
+  ku: ['Kurdistan', 'Erbil', 'Diyarbakır', 'Sulaymaniyah', 'Duhok', 'Qamishli'],
 }
 
 export default function Trending({
@@ -63,7 +73,7 @@ export default function Trending({
         {picks.map((p) => (
           <button key={p.parts[0].name} type="button" className="trend-card" onClick={() => onPick(p)}>
             <strong>{p.parts[0].name}</strong>
-            <small>{p.parts[p.parts.length - 1].name}</small>
+            {p.parts.length > 1 && <small>{p.parts[p.parts.length - 1].name}</small>}
           </button>
         ))}
       </div>

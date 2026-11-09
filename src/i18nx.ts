@@ -46,7 +46,7 @@ const sv: D = {
   myPaper: 'Min tidning', myPaperEmpty: 'Lägg till favoriter först.', myPaperPlace: 'Mina favoriter',
   compare: 'Jämför', compareTitle: 'Jämför platser', compareHint: 'Bocka i två favoriter med ⇄ för att jämföra dem.', cmpTotal: 'Nyheter hittade', cmp24: 'Senaste 24 h', cmp7: 'Senaste 7 dagarna',
   cmpTopics: 'Största ämnen', cmpWords: 'Heta ord', cmpSources: 'Källor', cmpLoading: 'Jämför…',
-  alerts: 'Larm', alertTopics: 'Larma mig om', alertAll: 'Allt', quiet: 'Tysta timmar för kategorin (inga popup)', quietFrom: 'från', quietTo: 'till',
+  alerts: 'Larm', alertTopics: 'Larma mig om', alertAll: 'Allt', quiet: 'Tysta timmar för kategorin (inga notiser)', quietFrom: 'från', quietTo: 'till',
   share: 'Dela', copied: 'Länk kopierad', mySources: 'Mina nyhetskällor', addSource: 'Lägg till en nyhetssajt, t.ex. mitti.se', removeSource: 'Ta bort',
   offline: 'Offline: visar sparade nyheter', install: 'Installera appen',
   nearMe: 'Nära mig', locating: 'Hittar plats…', 'err.geo': 'Platsåtkomst nekades',
@@ -73,7 +73,7 @@ const sv: D = {
 
 const tr_: D = {
   tAll: 'Tüm konular', tPolice: 'Polis', tCrime: 'Suç', tTraffic: 'Trafik', tHousing: 'Konut', tSchools: 'Okullar', tSport: 'Spor', tPolitics: 'Siyaset',
-  tBusiness: 'Ekonomi', tWeather: 'Hava', tAccident: 'Kazalar ve yangın', tCulture: 'Kultur', tHealth: 'Sağlık',
+  tBusiness: 'Ekonomi', tWeather: 'Hava', tAccident: 'Kazalar ve yangın', tCulture: 'Kültür', tHealth: 'Sağlık',
   sumNow: 'Şu an:', report: 'Mahalle raporu', repWeek: 'Son 7 günde {n} haber', repUsual: 'normalde haftada {n}',
   repAbove: 'Normalden hareketli', repBelow: 'Normalden sakin', repNormal: 'Her zamanki gibi', repTop: 'En çok konuşulan', repHot: 'En hareketli bölgeler',
   timeTravel: 'Zaman', tNow: 'Şimdi', t1m: '1 ay önce', t3m: '3 ay önce', t6m: '6 ay önce', t1y: '1 yıl önce', archiveNote: '{when} civarından haberler.',
@@ -241,4 +241,39 @@ const de: D = {
   apkLater: 'Nicht jetzt',
 }
 
-export const EXTRA: Record<Lang, D> = { en, sv, tr: tr_, ar, es, fr, de }
+// Kurmancî (Latin script)
+const ku: D = {
+  tAll: 'Hemû mijar', tPolice: 'Polîs', tCrime: 'Sûc', tTraffic: 'Trafîk', tHousing: 'Xanî', tSchools: 'Dibistan', tSport: 'Werzîş', tPolitics: 'Siyaset',
+  tBusiness: 'Aborî', tWeather: 'Hewa', tAccident: 'Qeza û şewat', tCulture: 'Çand', tHealth: 'Tenduristî',
+  sumNow: 'Niha:', report: 'Rapora taxê', repWeek: 'Di 7 rojên dawî de {n} nûçe', repUsual: 'bi gelemperî hefteyê {n}',
+  repAbove: 'Ji her carê çalaktir', repBelow: 'Ji her carê aramtir', repNormal: 'Wek her car', repTop: 'Ya herî zêde tê axaftin', repHot: 'Herêmên herî çalak',
+  timeTravel: 'Dem', tNow: 'Niha', t1m: 'Berî 1 mehê', t3m: 'Berî 3 mehan', t6m: 'Berî 6 mehan', t1y: 'Berî 1 salê', archiveNote: 'Nûçeyên ji {when}.',
+  myPaper: 'Rojnameya min', myPaperEmpty: 'Pêşî bijarteyan lê zêde bike.', myPaperPlace: 'Bijarteyên min',
+  compare: 'Bide ber hev', compareTitle: 'Cihan bide ber hev', compareHint: 'Ji bo berhevdanê du bijarteyan bi ⇄ nîşan bike.', cmpTotal: 'Nûçeyên hatine dîtin', cmp24: '24 saetên dawî', cmp7: '7 rojên dawî',
+  cmpTopics: 'Mijarên sereke', cmpWords: 'Peyvên germ', cmpSources: 'Çavkanî', cmpLoading: 'Tê berhevdan…',
+  alerts: 'Hişyarî', alertTopics: 'Min li ser van hişyar bike', alertAll: 'Her tişt', quiet: 'Saetên bêdeng ji bo vê kategoriyê (bê agahdarî)', quietFrom: 'ji', quietTo: 'heta',
+  share: 'Parve bike', copied: 'Girêdan hat kopîkirin', mySources: 'Çavkaniyên min ên nûçeyan', addSource: 'Malpereke nûçeyan lê zêde bike, mînak rudaw.net', removeSource: 'Rake',
+  offline: 'Negirêdayî: nûçeyên tomarkirî tên nîşandan', install: 'Sepanê saz bike',
+  nearMe: 'Nêzîkî min', locating: 'Cih tê dîtin…', 'err.geo': 'Destûra cih nehat dayîn',
+  moreSources: '+{n} çavkanî', delFav: 'Bijarteyê rake', pushOn: 'Agahdariyên paşperdeyê çalak in.', sheetToggle: 'Mezinahiya panelê biguherîne',
+  areaStep1: '1/3 Herêm', areaStep2: '2/3 Navçe', areaStep3: '3/3 Tax', estLeft: '~{n} çrk maye',
+  hotPlaces: 'Cihên germ ên niha', surpriseMe: 'Cihekî tesadufî', filterNews: 'Sernivîsan parzûn bike…',
+  sortNew: 'Nûtirîn', sortHot: 'Herî zêde hatî nivîsîn', savedTab: 'Tomarkirî', noSaved: 'Nûçeyan bi ★ tomar bike da ku paşê bixwînî.',
+  saveStory: 'Ji bo paşê tomar bike', clipStory: 'Wek birîna rojnameyê parve bike', readFull: 'Tevahiya nûçeyê li {s} bixwîne ↗',
+  noPreview: 'Çavkaniyê kurte nedaye — nûçeyê li jêr veke.',
+  mapSat: 'Satelît', mapPaper: 'Nexşe', mapDark: 'Şev', severeWx: 'Hewaya dijwar',
+  workerLabel: 'URL-ya Cloudflare Worker (bijarî)',
+  addWatchAddr: 'Navnîşana malê an cihekî ji bo şopandinê lê zêde bike…', testPush: 'Agahdariya ceribandinê bişîne', testSent: 'Agahdariya ceribandinê hat şandin!',
+  iosPushHint: 'Li iPhone: li Parve bike → Li Ekrana Sereke Zêde Bike bitikîne da ku agahdariyan bistînî.',
+  alertSources: 'Min agahdar bike ji bo', forumSpotlight: 'Gotûbêjên sereke yên forumê li ser {p}',
+  noExactNewsNote: 'Hê nûçeyên rasterast li ser {p} tune ne — şandiyên sereke yên forumê + {n} nûçeyên herêmî yên dawî li gorî dîrokê tên nîşandan.',
+  seeAllForum: 'Hemû şandiyên forumê →',
+  apkPromptTitle: 'NewzLocal wek sepana Androidê saz bike',
+  apkPromptBody: 'NewzLocal wek APK-ya rastîn a Androidê li ser telefona xwe saz bike: sepan li ser ekrana sereke ye û dema li bijarteyên te nûçe, bûyerên polîsan an şandiyên forumê yên nû derkevin, tu rasterast li ser ekrana kilîtkirî agahdar dibî.',
+  apkDownloadBtn: '⬇ APK-ya Androidê saz bike (NewzLocal.apk)',
+  apkWebInstallBtn: '⚡ Bi rêya gerokê zû saz bike',
+  apkAfterHint: 'NewzLocal.apk tê daxistin! Pelê daxistî veke, li Saz bike bitikîne û cihên xwe yên bijarte bi ★ tomar bike da ku agahdariyan bistînî.',
+  apkLater: 'Ne niha',
+}
+
+export const EXTRA: Record<Lang, D> = { en, sv, tr: tr_, ar, es, fr, de, ku }
