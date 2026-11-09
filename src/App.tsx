@@ -41,6 +41,7 @@ import {
   saveSources,
   search,
   showAppNotification,
+  suggest,
   syncPushSubscription,
   translate,
 } from './lib'
@@ -117,6 +118,7 @@ export default function App() {
   const [streetsOpen, setStreetsOpen] = useState(false)
   const searchAbort = useRef<AbortController | null>(null)
   const popNavRef = useRef(false)
+  const submittedQ = useRef('')
   const lastHashNav = useRef({ hash: '', at: 0 })
   const panelRef = useRef<HTMLElement>(null)
 
@@ -209,6 +211,26 @@ export default function App() {
     },
     [resetGlobe],
   )
+
+  // Suggestions while typing (debounced); pressing Enter runs the fuller search instead
+  useEffect(() => {
+    const text = q.trim()
+    if (text.length < 3 || submittedQ.current === text) return
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => {
+      suggest(text, lang, ctrl.signal)
+        .then((h) => {
+          if (ctrl.signal.aborted) return
+          setHits(h)
+          setSearched(false)
+        })
+        .catch(() => { /* typing-time lookups fail silently; Enter reports errors */ })
+    }, 350)
+    return () => {
+      clearTimeout(timer)
+      ctrl.abort()
+    }
+  }, [q, lang])
 
   const placeWxKey = place ? `${place.lat.toFixed(2)},${place.lon.toFixed(2)}` : ''
   const currentWeather = wxState?.key === placeWxKey ? wxState.data : null
@@ -579,6 +601,7 @@ export default function App() {
     searchAbort.current?.abort()
     const ctrl = new AbortController()
     searchAbort.current = ctrl
+    submittedQ.current = q.trim()
     try {
       setErr('')
       const h = await search(q, lang, ctrl.signal)
@@ -764,7 +787,7 @@ export default function App() {
         </header>
 
         <form className="searchbar" onSubmit={doSearch}>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('search')} aria-label={t('searchLabel')} />
+          <input value={q} onChange={(e) => { setQ(e.target.value); if (!e.target.value.trim()) setHits([]) }} placeholder={t('search')} aria-label={t('searchLabel')} />
           {'geolocation' in navigator && (
             <button
               type="button"
