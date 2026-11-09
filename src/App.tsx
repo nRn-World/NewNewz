@@ -43,7 +43,7 @@ import {
   syncPushSubscription,
   translate,
 } from './lib'
-import { type MapMode, loadMapMode, saveMapMode } from './mapStyle'
+import type { MapMode } from './mapStyle'
 import { type Street, streets } from './overpass'
 import Paper from './Paper'
 import { topicsOf } from './topics'
@@ -78,7 +78,7 @@ export default function App() {
   const [saved, setSaved] = useState<SavedArticle[]>(loadSaved)
   const [lang, setLang] = useState<Lang>(loadLang)
   const langRef = useRef(lang)
-  const [mapMode, setMapMode] = useState<MapMode>(loadMapMode)
+  const mapMode: MapMode = 'sat' // satellite only
   const [tick, setTick] = useState(0)
   const [stamp, setStamp] = useState<Date | null>(null)
   const shown = useRef('')
@@ -211,11 +211,6 @@ export default function App() {
     },
     [resetGlobe],
   )
-
-  const changeMapMode = (m: MapMode) => {
-    setMapMode(m)
-    saveMapMode(m)
-  }
 
   const placeWxKey = place ? `${place.lat.toFixed(2)},${place.lon.toFixed(2)}` : ''
   const currentWeather = wxState?.key === placeWxKey ? wxState.data : null
@@ -676,21 +671,6 @@ export default function App() {
   return (
     <div className="app">
       <div ref={boxRef} className="map" />
-
-      {/* Floating Map Mode Switcher (Satellite / Broadsheet Paper Map / Night Map) */}
-      <div className="mapmodes" role="group" aria-label="Map style">
-        {(['sat', 'paper', 'dark'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            className={mapMode === m ? 'on' : ''}
-            onClick={() => changeMapMode(m)}
-            aria-pressed={mapMode === m}
-          >
-            {t(m === 'sat' ? 'mapSat' : m === 'paper' ? 'mapPaper' : 'mapDark')}
-          </button>
-        ))}
-      </div>
 
       <aside ref={panelRef} className={`panel snap-${sheetSnap}`}>
         <button
