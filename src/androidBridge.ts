@@ -14,6 +14,7 @@ interface NativeAndroidBridge {
   syncFavorites?: (payloadJson: string) => void
   notifyNow?: (title: string, body: string, deepUrl: string, tag: string) => boolean
   checkNow?: () => void
+  fetchAsync?: (reqId: string, targetUrl: string, cookie: string, encoding: string) => void
 }
 
 declare global {
@@ -21,6 +22,7 @@ declare global {
     NewzLocalAndroid?: NativeAndroidBridge
     __deferredInstallPrompt?: BeforeInstallPromptEvent | null
     __onAndroidNotifPerm?: (perm: string) => void
+    __onAndroidFetch?: (reqId: string, ok: boolean, body: string) => void
   }
 }
 
@@ -124,7 +126,7 @@ export function syncNativeAndroidFavorites(
       lang,
       quiet,
       workerUrl,
-      places: favs.slice(0, 15).map((f) => ({
+      places: favs.slice(0, 40).map((f) => ({
         label: label(f),
         hash: encodePlace(f, 0),
         cc: f.cc,
@@ -140,6 +142,72 @@ export function syncNativeAndroidFavorites(
   } catch {
     return false
   }
+}
+
+let fetchSeq = 0
+const pendingFetches = new Map<string, { resolve: (text: string | null) => void; timer: ReturnType<typeof setTimeout> }>()
+
+function ensureAndroidFetchCallback(): void {
+  if (typeof window === 'undefined' || window.__onAndroidFetch) return
+  window.__onAndroidFetch = (reqId: string, ok: boolean, body: string) => {
+    const entry = pendingFetches.get(reqId)
+    if (!entry) return
+    pendingFetches.delete(reqId)
+    clearTimeout(entry.timer)
+    entry.resolve(ok && body ? body : null)
+  }
+}
+
+/**
+ * Performs a direct CORS-free HTTPS GET from the user's Android device when running inside `NewzLocal.apk`,
+ * consuming 0 Cloudflare Worker requests. Returns `null` when not running in the Android APK or on failure.
+ */
+export function nativeAndroidFetchText(
+  targetUrl: string,
+  opts?: { cookie?: string; encoding?: 'utf-8' | 'iso-8859-1'; signal?: AbortSignal },
+): Promise<string | null> {
+  if (typeof window === 'undefined' || !window.NewzLocalAndroid?.fetchAsync || !targetUrl.startsWith('https://')) {
+    return Promise.resolve(null)
+  }
+  ensureAndroidFetchCallback()
+  if (opts?.signal?.aborted) {
+    return Promise.reject(new DOMException('Aborted', 'AbortError'))
+  }
+  return new Promise((resolve, reject) => {
+    const reqId = `af_${++fetchSeq}_${Date.now()}`
+    const onAbort = () => {
+      const entry = pendingFetches.get(reqId)
+      if (entry) {
+        pendingFetches.delete(reqId)
+        clearTimeout(entry.timer)
+      }
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    opts?.signal?.addEventListener('abort', onAbort, { once: true })
+
+    const timer = setTimeout(() => {
+      pendingFetches.delete(reqId)
+      opts?.signal?.removeEventListener('abort', onAbort)
+      resolve(null)
+    }, 7800)
+
+    pendingFetches.set(reqId, {
+      timer,
+      resolve: (txt) => {
+        opts?.signal?.removeEventListener('abort', onAbort)
+        resolve(txt)
+      },
+    })
+
+    try {
+      window.NewzLocalAndroid?.fetchAsync?.(reqId, targetUrl, opts?.cookie ?? '', opts?.encoding ?? 'utf-8')
+    } catch {
+      pendingFetches.delete(reqId)
+      clearTimeout(timer)
+      opts?.signal?.removeEventListener('abort', onAbort)
+      resolve(null)
+    }
+  })
 }
 
 export function shouldAutoPromptInstall(): boolean {

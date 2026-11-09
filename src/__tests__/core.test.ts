@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   apkDownloadUrl,
+  nativeAndroidFetchText,
   notifyViaNativeAndroid,
   syncNativeAndroidFavorites,
 } from '../androidBridge'
@@ -695,5 +696,124 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     )
     expect(pollEmpty.status).toBe(200)
     expect(await pollEmpty.json()).toEqual({ places: [] })
+  })
+
+  it('deduplicates places across subscribers, skips idle KV writes when nothing is new, and supports direct Android fetch + 40 favourites', async () => {
+    const kvMap = new Map<string, string>()
+    let kvPutCalls = 0
+    const mockKv = {
+      async get(k: string, type?: string) {
+        const v = kvMap.get(k)
+        if (!v) return null
+        return type === 'json' ? JSON.parse(v) : v
+      },
+      async put(k: string, v: string) {
+        if (k.startsWith('sub:')) kvPutCalls++
+        kvMap.set(k, v)
+      },
+      async delete(k: string) {
+        kvMap.delete(k)
+      },
+      async list({ prefix }: { prefix: string }) {
+        return {
+          keys: [...kvMap.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+        }
+      },
+    }
+
+    const sharedPlace = {
+      label: 'Husby, Stockholm',
+      hash: 'husby1',
+      cc: 'SE',
+      alertNews: true,
+      alertForum: false,
+      parts: [
+        { level: 'district', name: 'Husby' },
+        { level: 'city', name: 'Stockholm' },
+      ],
+    }
+
+    // Two different subscribers watching the exact same place, already seeded with the existing story URL
+    kvMap.set(
+      'sub:user1',
+      JSON.stringify({
+        subscription: { endpoint: 'https://push.example/1', keys: { p256dh: 'k1', auth: 'a1' } },
+        places: [sharedPlace],
+        seen: { 'Husby, Stockholm': ['https://example.se/husby-1'] },
+      }),
+    )
+    kvMap.set(
+      'sub:user2',
+      JSON.stringify({
+        subscription: { endpoint: 'https://push.example/2', keys: { p256dh: 'k2', auth: 'a2' } },
+        places: [sharedPlace],
+        seen: { 'Husby, Stockholm': ['https://example.se/husby-1'] },
+      }),
+    )
+
+    let bingCalls = 0
+    let polisenCalls = 0
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const u = String(input)
+      if (u.includes('polisen.se/api/events')) {
+        polisenCalls++
+        return new Response('[]', { status: 200 })
+      }
+      if (u.includes('bing.com/news/search')) {
+        bingCalls++
+        return new Response(
+          '<rss><channel><item><title>Nyhet i Husby idag</title><link>https://example.se/husby-1</link><description>Husby centrum</description></item></channel></rss>',
+          { status: 200 },
+        )
+      }
+      return new Response('', { status: 404 })
+    }) as typeof fetch
+
+    try {
+      await worker.scheduled({}, { SUBS_KV: mockKv })
+      // Both subscribers watch Husby, yet Polisen was fetched only ONCE and KV put was called ZERO times because no URL was new!
+      expect(polisenCalls).toBe(1)
+      expect(bingCalls).toBeLessThanOrEqual(2)
+      expect(kvPutCalls).toBe(0)
+    } finally {
+      globalThis.fetch = origFetch
+    }
+
+    // Verify nativeAndroidFetchText & 40-favourite sync capacity
+    const g = globalThis as unknown as { window?: unknown }
+    const prevWin = g.window
+    let syncedPayload = ''
+    const mockWin: Record<string, unknown> = {
+      clearTimeout: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
+      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+      NewzLocalAndroid: {
+        isAndroidApk: () => true,
+        syncFavorites: (p: string) => {
+          syncedPayload = p
+        },
+        fetchAsync: (reqId: string, url: string) => {
+          const cb = mockWin.__onAndroidFetch as ((id: string, ok: boolean, body: string) => void) | undefined
+          cb?.(reqId, true, `<rss>${url}</rss>`)
+        },
+      },
+    }
+    g.window = mockWin
+    try {
+      // Re-register callback on mocked window
+      const manyFavs: Place[] = Array.from({ length: 38 }, (_, i) => ({
+        lat: 59.3 + i * 0.001,
+        lon: 18.0,
+        cc: 'SE',
+        parts: [{ level: 'district', name: `Area${i}` }],
+      }))
+      expect(syncNativeAndroidFavorites(manyFavs, 'sv', {}, 'https://newzlocal-proxy.bynrnworld.workers.dev')).toBe(true)
+      expect((JSON.parse(syncedPayload) as { places: unknown[] }).places).toHaveLength(38)
+      expect(await nativeAndroidFetchText('https://www.bing.com/news/search?q=Husby')).toBe('<rss>https://www.bing.com/news/search?q=Husby</rss>')
+      // Non-HTTPS URLs are rejected cleanly by nativeAndroidFetchText
+      expect(await nativeAndroidFetchText('http://insecure.example/rss')).toBeNull()
+    } finally {
+      g.window = prevWin
+    }
   })
 })

@@ -5,10 +5,10 @@ All edge backend logic for **NewzLocal** lives in this zero-dependency Cloudflar
 - **CORS Proxy Routes:** Bing News (`/bn`), Google News (`/gn`), Official Police Feeds (`/police-feed`, strict HTTPS allowlist), Reddit (`/rd`), Flashback (`/fb`), Ekşi Sözlük (`/eksi`), Menéame (`/meneame`), and inline Reader metadata (`/meta`)
 - **Background Mobile Web Push (`/push/*`):**
   - `GET /push/vapid` — Automatically generates and persists an ECDSA P-256 VAPID keypair inside Cloudflare KV (`SUBS_KV`) when custom VAPID secrets are not configured
-  - `POST /push/subscribe` — Stores/updates encrypted push subscriptions, watched places (with `alertNews` / `alertForum` flags), topic filters, and quiet hours
-  - `POST /push/poll` — Stateless edge polling endpoint consumed by the native Android APK's background `JobScheduler` (`FavoriteNewsJobService`) to deliver native Android lock-screen notifications for watched favourites
+  - `POST /push/subscribe` — Stores/updates encrypted push subscriptions and up to 30 watched places (with `alertNews` / `alertForum` flags & quiet hours) in auto-provisioned Cloudflare D1 (`SUBS_DB`, 100k writes/day free) with transparent fallback to `SUBS_KV`
+  - `POST /push/poll` — Deduplicated & edge-cached fallback polling endpoint for the native Android APK (`FavoriteNewsJobService` polls directly on-device first with 0 Worker requests and up to 40 favourites)
   - `POST /push/test` — Sends an immediate encrypted RFC 8291 `aes128gcm` test notification to verify mobile delivery
-  - `scheduled()` (`*/5 * * * *`) — Checks watched addresses, neighbourhoods, cities, and countries every 5 minutes for **both** new news articles and new forum discussions
+  - `scheduled()` (`*/5 * * * *`) — Deduplicates identical places across all subscribers, shards automatically (`<=14` unique places per 5-minute tick) to stay under Cloudflare Free's subrequest budget, and writes back **only** when initial seeding or genuinely fresh stories arrive (eliminating ~97% of idle writes)
 
 ## Automated Deployment via GitHub Actions (Recommended)
 

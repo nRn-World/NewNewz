@@ -195,30 +195,120 @@ function buildPlaceQueries(place) {
   return { newsQueries, forumQueries, mustKey, cleanOwn }
 }
 
-async function checkNewsForPlace(place, queries, mustKey) {
+let d1ReadyPromise = null
+
+async function ensureD1Table(db) {
+  if (!d1ReadyPromise) {
+    d1ReadyPromise = db
+      .prepare(
+        'CREATE TABLE IF NOT EXISTS push_subs (id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)',
+      )
+      .run()
+      .catch((e) => {
+        d1ReadyPromise = null
+        throw e
+      })
+  }
+  await d1ReadyPromise
+}
+
+function hasSubStore(env) {
+  return Boolean(env?.SUBS_DB || env?.SUBS_KV)
+}
+
+async function getSubRecord(env, k) {
+  if (env?.SUBS_DB) {
+    await ensureD1Table(env.SUBS_DB)
+    const row = await env.SUBS_DB.prepare('SELECT data FROM push_subs WHERE id = ?').bind(k).first()
+    if (row?.data) {
+      try { return JSON.parse(row.data) } catch { return null }
+    }
+    if (!env.SUBS_KV) return null
+  }
+  if (env?.SUBS_KV) {
+    return await env.SUBS_KV.get(k, 'json')
+  }
+  return null
+}
+
+async function putSubRecord(env, k, obj) {
+  const json = JSON.stringify(obj)
+  if (env?.SUBS_DB) {
+    await ensureD1Table(env.SUBS_DB)
+    await env.SUBS_DB.prepare(
+      'INSERT OR REPLACE INTO push_subs (id, data, updated_at) VALUES (?, ?, ?)',
+    )
+      .bind(k, json, Date.now())
+      .run()
+    return
+  }
+  if (env?.SUBS_KV) {
+    await env.SUBS_KV.put(k, json, { expirationTtl: 90 * 86400 })
+  }
+}
+
+async function deleteSubRecord(env, k) {
+  if (env?.SUBS_DB) {
+    await ensureD1Table(env.SUBS_DB)
+    await env.SUBS_DB.prepare('DELETE FROM push_subs WHERE id = ?').bind(k).run()
+  }
+  if (env?.SUBS_KV) {
+    await env.SUBS_KV.delete(k)
+  }
+}
+
+async function listSubRecords(env) {
+  if (env?.SUBS_DB) {
+    await ensureD1Table(env.SUBS_DB)
+    const minUpdated = Date.now() - 90 * 86400 * 1000
+    const res = await env.SUBS_DB.prepare('SELECT id, data FROM push_subs WHERE updated_at > ? LIMIT 2000')
+      .bind(minUpdated)
+      .all()
+    const rows = res?.results ?? []
+    if (rows.length > 0 || !env.SUBS_KV) {
+      return rows
+        .map((r) => {
+          try { return { key: r.id, rec: JSON.parse(r.data) } } catch { return null }
+        })
+        .filter(Boolean)
+    }
+  }
+  if (env?.SUBS_KV) {
+    const list = await env.SUBS_KV.list({ prefix: 'sub:', limit: 1000 })
+    const out = []
+    for (const item of list.keys) {
+      const rec = await env.SUBS_KV.get(item.name, 'json')
+      if (rec) out.push({ key: item.name, rec })
+    }
+    return out
+  }
+  return []
+}
+
+async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) {
   const cc = (place.cc || 'US').toUpperCase()
   const out = []
 
-  // Direct Swedish Police Open Data API check for Sweden (`polisen.se/api/events`)
+  // Direct Swedish Police Open Data API check for Sweden (`polisen.se/api/events`), shared across batch
   if (cc === 'SE') {
     try {
-      const pr = await fetch('https://polisen.se/api/events', {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
-        signal: AbortSignal.timeout(5500),
-      })
-      if (pr.ok) {
-        const events = await pr.json()
-        if (Array.isArray(events)) {
-          for (const ev of events.slice(0, 120)) {
-            const hay = `${ev?.name ?? ''} ${ev?.summary ?? ''} ${ev?.location?.name ?? ''}`
-            if (ev?.url && ev?.name && hasPlaceWord(hay, mustKey)) {
-              out.push({
-                title: `🛡 Polisen · ${ev.type ? `${ev.type}: ${ev.summary || ev.name}` : ev.name}`,
-                url: ev.url.startsWith('http') ? ev.url : `https://polisen.se${ev.url}`,
-                kind: 'news',
-              })
-              if (out.length >= 4) break
-            }
+      const events = sharedPolisenPromise
+        ? await sharedPolisenPromise()
+        : await fetch('https://polisen.se/api/events', {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+            cf: { cacheTtl: 180, cacheEverything: true },
+            signal: AbortSignal.timeout(5500),
+          }).then((pr) => (pr.ok ? pr.json() : []))
+      if (Array.isArray(events)) {
+        for (const ev of events.slice(0, 150)) {
+          const hay = `${ev?.name ?? ''} ${ev?.summary ?? ''} ${ev?.location?.name ?? ''}`
+          if (ev?.url && ev?.name && hasPlaceWord(hay, mustKey)) {
+            out.push({
+              title: `🛡 Polisen · ${ev.type ? `${ev.type}: ${ev.summary || ev.name}` : ev.name}`,
+              url: ev.url.startsWith('http') ? ev.url : `https://polisen.se${ev.url}`,
+              kind: 'news',
+            })
+            if (out.length >= 4) break
           }
         }
       }
@@ -230,6 +320,7 @@ async function checkNewsForPlace(place, queries, mustKey) {
     try {
       const tr = await fetch('https://phuket.tourist.police.go.th/feed/', {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        cf: { cacheTtl: 240, cacheEverything: true },
         signal: AbortSignal.timeout(5500),
       })
       if (tr.ok) {
@@ -247,10 +338,12 @@ async function checkNewsForPlace(place, queries, mustKey) {
     } catch { /* fallback to RSS */ }
   }
 
-  for (const q of queries) {
+  // Only run top 2 disambiguated queries with 4-minute Cloudflare edge cache to minimize subrequests
+  for (const q of queries.slice(0, 2)) {
     try {
       const r = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent(q)}&format=rss&cc=${cc}&sortbydate=1`, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        cf: { cacheTtl: 240, cacheEverything: true },
         signal: AbortSignal.timeout(6000),
       })
       if (r.ok) {
@@ -278,10 +371,11 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
   const q = forumQueries[0]
   if (!q) return out
 
-  // 1. Reddit newest threads
+  // 1. Reddit newest threads (edge-cached 240s)
   try {
     const r = await fetch(`https://www.reddit.com/search.json?raw_json=1&sort=new&limit=15&q=${encodeURIComponent(q)}`, {
       headers: { 'User-Agent': 'NewzLocalAlert/1.0' },
+      cf: { cacheTtl: 240, cacheEverything: true },
       signal: AbortSignal.timeout(5500),
     })
     if (r.ok) {
@@ -295,11 +389,12 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
     }
   } catch { /* ignore */ }
 
-  // 2. Flashback active threads & post mentions in Sweden
+  // 2. Flashback active threads & post mentions in Sweden (edge-cached 240s)
   if (cc === 'SE' && cleanOwn) {
     try {
       const r = await fetch(`https://www.flashback.org/sok/?query=${encodeURIComponent(cleanOwn)}&so=pd`, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
+        cf: { cacheTtl: 240, cacheEverything: true },
         signal: AbortSignal.timeout(5500),
       })
       if (r.ok) {
@@ -316,9 +411,10 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
     } catch { /* ignore */ }
   }
 
-  // 3. Lemmy Fediverse
+  // 3. Lemmy Fediverse (edge-cached 240s)
   try {
     const r = await fetch(`https://lemmy.world/api/v3/search?type_=Posts&sort=New&limit=10&q=${encodeURIComponent(q)}`, {
+      cf: { cacheTtl: 240, cacheEverything: true },
       signal: AbortSignal.timeout(5000),
     })
     if (r.ok) {
@@ -333,6 +429,30 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
   } catch { /* ignore */ }
 
   return out.slice(0, 15)
+}
+
+function createSharedPolisenLoader() {
+  let memo = null
+  return () => {
+    if (!memo) {
+      memo = fetch('https://polisen.se/api/events', {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        cf: { cacheTtl: 180, cacheEverything: true },
+        signal: AbortSignal.timeout(5500),
+      })
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => [])
+    }
+    return memo
+  }
+}
+
+function placeSignature(p) {
+  const cc = (p.cc || 'US').toUpperCase()
+  const { mustKey, cleanOwn } = buildPlaceQueries(p)
+  const wn = p.alertNews !== false ? '1' : '0'
+  const wf = p.alertForum !== false ? '1' : '0'
+  return `${cc}|${mustKey}|${normStr(cleanOwn)}|${wn}|${wf}`
 }
 
 export default {
@@ -360,22 +480,30 @@ export default {
       return new Response(JSON.stringify({ publicKey: vapid.publicKey }), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
-    // Native Android APK background favourite news & forum polling endpoint
+    // Native Android APK fallback favourite news & forum polling endpoint (deduplicated & edge-cached)
     if (url.pathname === '/push/poll' && req.method === 'POST') {
       try {
         const body = await req.json()
-        const places = Array.isArray(body?.places) ? body.places.slice(0, 12) : []
+        const places = Array.isArray(body?.places) ? body.places.slice(0, 25) : []
+        const sharedPolisen = createSharedPolisenLoader()
+        const memo = new Map()
         const results = []
         for (const p of places) {
           if (!p?.label || !Array.isArray(p?.parts) || !p.parts.length) continue
-          const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
-          const wantNews = p.alertNews !== false
-          const wantForum = p.alertForum !== false
-          const [newsHits, forumHits] = await Promise.all([
-            wantNews ? checkNewsForPlace(p, newsQueries, mustKey) : Promise.resolve([]),
-            wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn) : Promise.resolve([]),
-          ])
-          const combined = [...newsHits, ...forumHits]
+          const sig = placeSignature(p)
+          if (!memo.has(sig)) {
+            const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
+            const wantNews = p.alertNews !== false
+            const wantForum = p.alertForum !== false
+            memo.set(
+              sig,
+              Promise.all([
+                wantNews ? checkNewsForPlace(p, newsQueries, mustKey, sharedPolisen) : Promise.resolve([]),
+                wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn) : Promise.resolve([]),
+              ]).then(([n, f]) => [...n, ...f]),
+            )
+          }
+          const combined = await memo.get(sig)
           if (!combined.length) continue
           results.push({
             label: String(p.label),
@@ -428,7 +556,7 @@ export default {
       }
     }
 
-    if (url.pathname === '/push/subscribe' && env.SUBS_KV) {
+    if (url.pathname === '/push/subscribe' && hasSubStore(env)) {
       if (req.method === 'POST') {
         try {
           const body = await req.json()
@@ -436,19 +564,15 @@ export default {
           const keys = body?.subscription?.keys
           if (!ep || !keys?.p256dh || !keys?.auth) return new Response('Invalid subscription', { status: 400, headers: cors })
           const k = await subKey(ep)
-          const existing = (await env.SUBS_KV.get(k, 'json')) ?? {}
-          await env.SUBS_KV.put(
-            k,
-            JSON.stringify({
-              subscription: { endpoint: ep, keys: { p256dh: keys.p256dh, auth: keys.auth } },
-              lang: String(body.lang || 'en').slice(0, 5),
-              quiet: body.quiet ?? {},
-              places: Array.isArray(body.places) ? body.places.slice(0, 15) : [],
-              seen: existing.seen ?? {},
-              updatedAt: Date.now(),
-            }),
-            { expirationTtl: 90 * 86400 },
-          )
+          const existing = (await getSubRecord(env, k)) ?? {}
+          await putSubRecord(env, k, {
+            subscription: { endpoint: ep, keys: { p256dh: keys.p256dh, auth: keys.auth } },
+            lang: String(body.lang || 'en').slice(0, 5),
+            quiet: body.quiet ?? {},
+            places: Array.isArray(body.places) ? body.places.slice(0, 30) : [],
+            seen: existing.seen ?? {},
+            updatedAt: Date.now(),
+          })
           return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, 'Content-Type': 'application/json' } })
         } catch {
           return new Response('Bad JSON', { status: 400, headers: cors })
@@ -457,7 +581,7 @@ export default {
       if (req.method === 'DELETE') {
         try {
           const body = await req.json()
-          if (body?.endpoint) await env.SUBS_KV.delete(await subKey(body.endpoint))
+          if (body?.endpoint) await deleteSubRecord(env, await subKey(body.endpoint))
           return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, 'Content-Type': 'application/json' } })
         } catch {
           return new Response('Bad JSON', { status: 400, headers: cors })
@@ -636,11 +760,27 @@ export default {
       }
     }
 
-    // --- Public RSS / Forum CORS proxy ---
+    // --- Public RSS / Forum CORS proxy (edge-cached 180s across visitors) ---
     const prefix = Object.keys(ORIGINS).find((p) => url.pathname.startsWith(p + '/'))
     if (req.method !== 'GET' || !prefix) return new Response('Not found', { status: 404, headers: cors })
     try {
       const isRss = prefix === '/gn' || prefix === '/bn'
+      const edgeCache = typeof caches !== 'undefined' ? caches.default : null
+      const cacheKey = edgeCache ? new Request(`${url.origin}${url.pathname}${url.search}`, { method: 'GET' }) : null
+      if (edgeCache && cacheKey) {
+        const hit = await edgeCache.match(cacheKey)
+        if (hit) {
+          return new Response(hit.body, {
+            status: 200,
+            headers: {
+              ...cors,
+              'Content-Type': hit.headers.get('Content-Type') ?? (isRss ? 'application/xml; charset=utf-8' : 'text/plain'),
+              'Cache-Control': 'public, max-age=180',
+            },
+          })
+        }
+      }
+
       const upstreamHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         Accept: isRss ? 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8' : '*/*',
@@ -651,7 +791,7 @@ export default {
       }
       const r = await fetch(ORIGINS[prefix] + url.pathname.slice(prefix.length) + url.search, {
         headers: upstreamHeaders,
-        cf: { cacheTtl: 60, cacheEverything: !isRss },
+        cf: { cacheTtl: 180, cacheEverything: true },
         signal: AbortSignal.timeout(10_000),
       })
       if (isRss) {
@@ -659,53 +799,98 @@ export default {
         if (!r.ok || !/<rss\b|<channel\b|<feed\b/i.test(txt)) {
           return new Response('Upstream non-RSS response', { status: 502, headers: { ...cors, 'Cache-Control': 'no-store' } })
         }
+        if (edgeCache && cacheKey) {
+          await edgeCache
+            .put(
+              cacheKey,
+              new Response(txt, {
+                status: 200,
+                headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=180' },
+              }),
+            )
+            .catch(() => {})
+        }
         return new Response(txt, {
           status: 200,
-          headers: { ...cors, 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
+          headers: { ...cors, 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=180' },
         })
       }
       return new Response(r.body, {
         status: r.status,
-        headers: { ...cors, 'Content-Type': r.headers.get('Content-Type') ?? 'text/plain', 'Cache-Control': 'public, max-age=60' },
+        headers: { ...cors, 'Content-Type': r.headers.get('Content-Type') ?? 'text/plain', 'Cache-Control': 'public, max-age=180' },
       })
     } catch {
       return new Response('Upstream error', { status: 502, headers: cors })
     }
   },
 
-  // Every 5 minutes: checks saved addresses/districts/cities/countries for BOTH new News AND new Forum posts
-  // and dispatches encrypted Web Push notifications straight to subscribed phones & desktops.
+  // Every 5 minutes: deduplicates watched places across all subscribers, shards automatically within Cloudflare's
+  // free subrequest budget, and writes to D1/KV ONLY when genuinely new stories appear.
   async scheduled(_event, env) {
     const vapid = await getOrCreateVapid(env)
-    if (!env.SUBS_KV || !vapid) return
-    const list = await env.SUBS_KV.list({ prefix: 'sub:', limit: 200 })
-    for (const item of list.keys) {
-      const rec = await env.SUBS_KV.get(item.name, 'json')
-      if (!rec?.subscription?.endpoint || !rec.places?.length) continue
+    if (!hasSubStore(env) || !vapid) return
+    const subs = await listSubRecords(env)
+    if (!subs.length) return
+
+    // 1. Collect all unique active places across all subscribers so popular cities are checked ONCE, not N times
+    const uniqueMap = new Map()
+    for (const { rec } of subs) {
+      if (!rec?.subscription?.endpoint || !Array.isArray(rec.places)) continue
+      for (const p of rec.places) {
+        if (!p?.label || !Array.isArray(p?.parts) || !p.parts.length) continue
+        if (p.cat && inQuietHours(rec.quiet?.[p.cat])) continue
+        const sig = placeSignature(p)
+        if (!uniqueMap.has(sig)) uniqueMap.set(sig, p)
+      }
+    }
+
+    const allSigs = [...uniqueMap.keys()]
+    if (!allSigs.length) return
+
+    // 2. Automatic sharding: max 14 unique places per 5-minute tick keeps subrequests comfortably under Free Tier's 50-subrequest limit
+    const MAX_PLACES_PER_TICK = 14
+    const numShards = Math.max(1, Math.ceil(allSigs.length / MAX_PLACES_PER_TICK))
+    const activeShard = Math.floor(Date.now() / 300_000) % numShards
+    const tickSigs = new Set(allSigs.filter((_, idx) => idx % numShards === activeShard))
+
+    const sharedPolisen = createSharedPolisenLoader()
+    const placeResults = new Map()
+    for (const sig of tickSigs) {
+      const p = uniqueMap.get(sig)
+      const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
+      const wantNews = p.alertNews !== false
+      const wantForum = p.alertForum !== false
+      const [newsHits, forumHits] = await Promise.all([
+        wantNews ? checkNewsForPlace(p, newsQueries, mustKey, sharedPolisen) : Promise.resolve([]),
+        wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn) : Promise.resolve([]),
+      ])
+      placeResults.set(sig, [...newsHits, ...forumHits])
+    }
+
+    // 3. Fan out results to subscribers; write back ONLY when first-seeding or when fresh items actually arrived
+    for (const { key, rec } of subs) {
+      if (!rec?.subscription?.endpoint || !Array.isArray(rec.places) || !rec.places.length) continue
       let dirty = false
       let deadSub = false
 
       for (const p of rec.places) {
-        if (p.cat && inQuietHours(rec.quiet?.[p.cat])) continue
-        const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
-        const wantNews = p.alertNews !== false
-        const wantForum = p.alertForum !== false
-
-        const [newsHits, forumHits] = await Promise.all([
-          wantNews ? checkNewsForPlace(p, newsQueries, mustKey) : Promise.resolve([]),
-          wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn) : Promise.resolve([]),
-        ])
-
-        const combined = [...newsHits, ...forumHits]
+        if (!p?.label || (p.cat && inQuietHours(rec.quiet?.[p.cat]))) continue
+        const sig = placeSignature(p)
+        if (!placeResults.has(sig)) continue
+        const combined = placeResults.get(sig) ?? []
         if (!combined.length) continue
 
         const prev = rec.seen?.[p.label]
-        const fresh = prev ? combined.filter((s) => !prev.includes(s.url)) : []
-        rec.seen = {
-          ...rec.seen,
-          [p.label]: [...new Set([...combined.map((s) => s.url), ...(prev ?? [])])].slice(0, 250),
+        const isFirstSeed = !Array.isArray(prev)
+        const fresh = isFirstSeed ? [] : combined.filter((s) => !prev.includes(s.url))
+
+        if (isFirstSeed || fresh.length > 0) {
+          rec.seen = {
+            ...rec.seen,
+            [p.label]: [...new Set([...combined.map((s) => s.url), ...(isFirstSeed ? [] : prev)])].slice(0, 250),
+          }
+          dirty = true
         }
-        dirty = true
         if (!fresh.length) continue
 
         const first = fresh[0]
@@ -725,7 +910,7 @@ export default {
             env.VAPID_SUBJECT,
           )
           if (pushRes.status === 404 || pushRes.status === 410) {
-            await env.SUBS_KV.delete(item.name)
+            await deleteSubRecord(env, key)
             dirty = false
             deadSub = true
             break
@@ -734,7 +919,7 @@ export default {
       }
 
       if (dirty && !deadSub) {
-        await env.SUBS_KV.put(item.name, JSON.stringify(rec), { expirationTtl: 90 * 86400 })
+        await putSubRecord(env, key, rec)
       }
     }
   },

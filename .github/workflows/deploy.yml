@@ -44,6 +44,14 @@ jobs:
             else
               echo "Warning: could not provision SUBS_KV namespace (check Workers KV Storage Write permission)"
             fi
+            D1_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database?per_page=100" | jq -r '.result[]? | select(.name == "newzlocal-db") | .uuid' | head -n 1 || true)
+            if [ -z "$D1_ID" ]; then
+              D1_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"name":"newzlocal-db"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database" | jq -r '.result.uuid // empty' || true)
+            fi
+            if [ -n "$D1_ID" ]; then
+              printf '\n[[d1_databases]]\nbinding = "SUBS_DB"\ndatabase_name = "newzlocal-db"\ndatabase_id = "%s"\n' "$D1_ID" >> worker/wrangler.toml
+              echo "Provisioned and attached SUBS_DB D1 database"
+            fi
           fi
       - name: Deploy Cloudflare Worker
         id: deploy

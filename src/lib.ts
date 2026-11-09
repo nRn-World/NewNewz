@@ -1,5 +1,6 @@
 import {
   isNativeAndroidApp,
+  nativeAndroidFetchText,
   notifyViaNativeAndroid,
   requestAppNotificationPermission,
   syncNativeAndroidFavorites,
@@ -526,9 +527,15 @@ async function bingHeadlines(query: string, country: string, when: string, signa
   const qs = `q=${encodeURIComponent(query)}&format=rss&cc=${ed.cc}&setlang=${ed.hl}&sortbydate=1${iv ? `&qft=${encodeURIComponent(`interval="${iv}"`)}` : ''}`
   const canonicalBing = `https://www.bing.com/news/search?${qs}`
 
+  // 1. Native Android APK direct device fetch (0 Cloudflare Worker requests!)
+  const directTxt = await nativeAndroidFetchText(canonicalBing, { signal })
+  if (directTxt) {
+    try { return parseBingRssXml(directTxt, ed.lang) } catch { /* fallback */ }
+  }
+
   if (!isLocalProxyBlocked()) {
     try {
-      const r = await fetch(`${API}/bn/news/search?${qs}`, { cache: 'no-store', signal: withTimeout(signal, 4800) })
+      const r = await fetch(`${API}/bn/news/search?${qs}`, { signal: withTimeout(signal, 4800) })
       if (r.ok) return parseBingRssXml(await r.text(), ed.lang)
       if (!API && (r.status === 404 || r.status >= 500)) markLocalProxyDown()
     } catch (e) {
@@ -539,8 +546,9 @@ async function bingHeadlines(query: string, country: string, when: string, signa
   return fetchRssViaCorsBridges(canonicalBing, parseBingRssXml, ed.lang, signal)
 }
 
-// Google News RSS via VITE_GN_URL, Worker /gn (with EU SOCS consent cookie), and concurrent browser CORS bridge racing.
+// Google News RSS via direct Android APK fetch, VITE_GN_URL, edge-cached Worker /gn, and browser CORS bridges.
 const GN_ENV = import.meta.env.VITE_GN_URL as string | undefined
+const GN_COOKIE = 'SOCS=CAESHAgBEhJnd3NfMjAyNDAxMDEtMF9SQzIaAmVuIAEaBgiAo_CmBg; CONSENT=YES+cb.20240101-01-p0.en+FX+999'
 let gnProxyDown = false
 
 async function googleHeadlines(query: string, country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
@@ -549,10 +557,16 @@ async function googleHeadlines(query: string, country: string, when: string, sig
   const qs = `q=${encodeURIComponent(q)}&hl=${encodeURIComponent(ed.hl)}&gl=${ed.cc}&ceid=${encodeURIComponent(ed.ceid)}`
   const canonicalRss = `https://news.google.com/rss/search?${qs}`
 
+  // 1. Native Android APK direct device fetch (0 Cloudflare Worker requests!)
+  const directTxt = await nativeAndroidFetchText(canonicalRss, { cookie: GN_COOKIE, signal })
+  if (directTxt) {
+    try { return parseGoogleRssXml(directTxt, ed.lang) } catch { /* fallback */ }
+  }
+
   if (GN_ENV || (!gnProxyDown && !isLocalProxyBlocked())) {
     try {
       const base = GN_ENV ?? `${API}/gn/rss/search`
-      const r = await fetch(`${base}?${qs}`, { cache: 'no-store', signal: withTimeout(signal, GN_ENV || API ? 4200 : 2200) })
+      const r = await fetch(`${base}?${qs}`, { signal: withTimeout(signal, GN_ENV || API ? 4200 : 2200) })
       if (r.ok) return parseGoogleRssXml(await r.text(), ed.lang)
       if (!GN_ENV) gnProxyDown = true
     } catch (e) {
@@ -623,7 +637,13 @@ async function gdeltHeadlines(query: string, _country: string, when: string, sig
   return rows
 }
 
+const headlineMemo = new Map<string, { at: number; rows: Article[] }>()
+
 async function headlines(query: string, country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
+  const mk = `${country}|${when}|${query}`
+  const hit = headlineMemo.get(mk)
+  if (hit && Date.now() - hit.at < 150_000) return hit.rows
+
   const settled = await Promise.allSettled([
     bingHeadlines(query, country, when, signal),
     googleHeadlines(query, country, when, signal),
@@ -631,8 +651,13 @@ async function headlines(query: string, country: string, when: string, signal?: 
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   const anySucceeded = settled.some((s) => s.status === 'fulfilled')
   const combined = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
-  if (combined.length || anySucceeded) return combined
-  return gdeltHeadlines(query, country, when, signal)
+  if (combined.length || anySucceeded) {
+    headlineMemo.set(mk, { at: Date.now(), rows: combined })
+    return combined
+  }
+  const gd = await gdeltHeadlines(query, country, when, signal)
+  headlineMemo.set(mk, { at: Date.now(), rows: gd })
+  return gd
 }
 
 /** GNews and NewsData.io (free-plan keys live in the Worker; reserved for sparse places where RSS finds very little). */
@@ -1796,7 +1821,7 @@ export async function syncPushSubscription(favs: Place[], lang: string, quietMap
         subscription: sub.toJSON(),
         lang,
         quiet: quietMap,
-        places: favs.slice(0, 15).map((f) => ({
+        places: favs.slice(0, 30).map((f) => ({
           label: label(f),
           hash: encodePlace(f, 0),
           cc: f.cc,
