@@ -57,7 +57,7 @@ const ADMIN_RE = /(?<![\p{L}\p{N}])(?:province|il|ili|county|municipality|govern
  * unifies Arabic letter forms, strips administrative boilerplate words, and keeps all scripts
  * (Arabic, Cyrillic, Greek, CJK, Latin) intact for accurate matching and hot-word analysis.
  */
-export const norm = (s: string) =>
+const normRaw = (s: string) =>
   s
     .replace(/İ/g, 'i')
     .toLowerCase()
@@ -77,6 +77,18 @@ export const norm = (s: string) =>
     .replace(ADMIN_RE, ' ')
     .replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ')
     .trim()
+
+// norm() runs ~15 Unicode regexes and is called thousands of times on the same strings (place aliases, headlines), so memoise it.
+const normCache = new Map<string, string>()
+export const norm = (s: string): string => {
+  let v = normCache.get(s)
+  if (v === undefined) {
+    v = normRaw(s)
+    if (normCache.size > 20000) normCache.clear() // shortcut: crude cap, fine for a session of headlines
+    normCache.set(s, v)
+  }
+  return v
+}
 
 export const polys = (g: Area['geometry']) => (g.type === 'Polygon' ? [g.coordinates as Pos[][]] : (g.coordinates as Pos[][][]))
 
