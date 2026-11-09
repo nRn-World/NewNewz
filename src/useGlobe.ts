@@ -207,14 +207,8 @@ export function useGlobe({
           source: 'areas',
           paint: {
             'fill-color': isPaper ? '#c8321e' : '#ff5a3c',
-            'fill-opacity': [
-              'case',
-              ['==', ['get', 'sel'], 1],
-              0,
-              ['boolean', ['feature-state', 'hover'], false],
-              0.28,
-              ['+', 0.05, ['*', 0.05, ['min', ['get', 'n'], 10]]],
-            ],
+            // near-invisible: only there to catch clicks; outlines carry the look
+            'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.15, 0.01],
           },
         })
         m.addLayer({
@@ -222,9 +216,9 @@ export function useGlobe({
           type: 'line',
           source: 'areas',
           paint: {
-            'line-color': ['case', ['==', ['get', 'sel'], 1], isPaper ? '#c8321e' : '#ffd166', isPaper ? '#14100b' : '#ffffff'],
-            'line-width': ['case', ['==', ['get', 'sel'], 1], 3, 1.2],
-            'line-opacity': 0.85,
+            'line-color': ['case', ['==', ['get', 'sel'], 1], '#ff2d1a', isPaper ? '#c8321e' : '#ff5a3c'],
+            'line-width': ['case', ['==', ['get', 'sel'], 1], 3.5, ['+', 1, ['min', ['get', 'n'], 4]]],
+            'line-opacity': 0.95,
           },
         })
       }
