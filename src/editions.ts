@@ -7,8 +7,8 @@ export type EditionInfo = {
   lang: string // 2-letter primary language code (matches App Lang where applicable)
 }
 
-// Compact table: CC -> [hl, ceidLang, 2-letter lang]
-const RAW_EDITIONS: Record<string, [string, string, string]> = {
+// Compact table: CC -> [hl, ceidLang, 2-letter lang, region to query when the code is not a real ISO one]
+const RAW_EDITIONS: Record<string, [string, string, string, string?]> = {
   // Nordics & Baltics
   SE: ['sv', 'sv', 'sv'],
   NO: ['no', 'no', 'no'],
@@ -68,6 +68,8 @@ const RAW_EDITIONS: Record<string, [string, string, string]> = {
   DZ: ['fr', 'fr', 'fr'],
   TN: ['fr', 'fr', 'fr'],
   IR: ['fa', 'fa', 'fa'],
+  // Kurdistan (no ISO code, no Kurdish edition): English-language regional press, ranked from Iraq where most of it is published
+  KU: ['en', 'en', 'en', 'IQ'],
   // Americas
   US: ['en-US', 'en', 'en'],
   CA: ['en-CA', 'en', 'en'],
@@ -115,7 +117,7 @@ const RAW_EDITIONS: Record<string, [string, string, string]> = {
 export function editionFor(countryCode?: string): EditionInfo {
   const cc = (countryCode || 'US').toUpperCase()
   const hit = RAW_EDITIONS[cc]
-  if (hit) return { cc, hl: hit[0], ceid: `${cc}:${hit[1]}`, lang: hit[2] }
+  if (hit) return { cc: hit[3] ?? cc, hl: hit[0], ceid: `${hit[3] ?? cc}:${hit[1]}`, lang: hit[2] }
   // Unknown country: still pass its real ISO country code to `gl` so local outlets rank first
   return { cc: /^[A-Z]{2}$/.test(cc) ? cc : 'US', hl: 'en', ceid: `${/^[A-Z]{2}$/.test(cc) ? cc : 'US'}:en`, lang: 'en' }
 }
@@ -180,6 +182,7 @@ export const SUBS: Record<string, string[]> = {
   EG: ['Egypt', 'Cairo'],
   IL: ['Israel', 'telaviv'],
   IR: ['Iran'],
+  KU: ['kurdistan', 'kurdish'],
   IN: ['india', 'mumbai', 'delhi', 'bangalore'],
   JP: ['japan', 'japanlife', 'tokyo'],
   KR: ['korea', 'seoul'],

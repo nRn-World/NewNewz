@@ -1,5 +1,6 @@
 import type { Place, Quiet } from './lib'
-import { label } from './lib'
+import { alertCc, label } from './lib'
+import { TOPICS } from './topicRules'
 import { encodePlace } from './urlState'
 
 export interface BeforeInstallPromptEvent extends Event {
@@ -126,10 +127,12 @@ export function syncNativeAndroidFavorites(
       lang,
       quiet,
       workerUrl,
+      // the app's own topic patterns, so the phone's background check filters alerts exactly as the open app does
+      topics: Object.fromEntries(TOPICS.map((t) => [t.id, t.re.source])),
       places: favs.slice(0, 40).map((f) => ({
         label: label(f),
         hash: encodePlace(f, 0),
-        cc: f.cc,
+        cc: alertCc(f),
         parts: f.parts,
         cat: f.cat,
         alert: f.alert,

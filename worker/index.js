@@ -1,3 +1,5 @@
+import { topicsOf } from '../src/topicRules.ts'
+
 // Cloudflare Worker: hardened CORS proxy (/gn, /bn, /rd, /fb, /meneame, /eksi, /meta, /gnews, /nd)
 // + zero-config RFC 8291 / VAPID Web Push background alerts for both News AND Forum posts on saved addresses/places.
 const ORIGINS = {
@@ -12,13 +14,38 @@ const KEYED = {
 }
 const DEFAULT_ALLOWED = ['https://nrnworld.one', 'https://www.nrnworld.one', 'https://nrn-world.github.io', 'http://localhost:5173', 'http://localhost:4173']
 
-function isAllowedOrigin(origin, env) {
-  if (!origin) return true
+/** The app's own sites (plus ALLOWED_ORIGINS and local development): the only pages that may spend the keyed API quota. */
+function isTrustedOrigin(origin, env) {
   const extra = (env?.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
   if ([...DEFAULT_ALLOWED, ...extra].includes(origin)) return true
   if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true
-  if (/^https:\/\/([a-z0-9-]+\.)*(nrnworld\.one|github\.io|e2b\.app|e2b\.dev|arena\.ai|arena\.site|lmarena\.ai)$/i.test(origin)) return true
-  return false
+  return /^https:\/\/([a-z0-9-]+\.)*nrnworld\.one$/i.test(origin)
+}
+
+/**
+ * Pages that may call the Worker at all. A request without an Origin header is not a browser page (the Android app's
+ * background job, a server); browsers always send one cross-site, so other websites cannot use this as their proxy.
+ */
+function isAllowedOrigin(origin, env) {
+  if (!origin) return true
+  if (isTrustedOrigin(origin, env)) return true
+  // preview sandboxes used while developing the app
+  return /^https:\/\/([a-z0-9-]+\.)*(e2b\.app|e2b\.dev|arena\.ai|arena\.site|lmarena\.ai)$/i.test(origin)
+}
+
+/** Web Push is only ever delivered to the browser vendors' push services, never to an arbitrary URL a client names. */
+function isPushServiceUrl(endpoint) {
+  try {
+    const u = new URL(String(endpoint))
+    return (
+      u.protocol === 'https:' &&
+      !u.username &&
+      !u.port &&
+      /(^|\.)(fcm\.googleapis\.com|android\.googleapis\.com|push\.services\.mozilla\.com|notify\.windows\.com|push\.apple\.com)$/i.test(u.hostname)
+    )
+  } catch {
+    return false
+  }
 }
 
 const enc = new TextEncoder()
@@ -132,9 +159,22 @@ async function subKey(endpoint) {
   return `sub:${b64u(digest)}`
 }
 
-function inQuietHours(q, now = new Date()) {
+/** Minutes past midnight on the subscriber's own clock (UTC for subscriptions stored before the zone was sent). */
+function localMinutes(tz, now) {
+  if (tz) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now)
+      const num = (type) => Number(parts.find((x) => x.type === type)?.value)
+      const m = num('hour') * 60 + num('minute')
+      if (Number.isFinite(m)) return m
+    } catch { /* unknown zone name */ }
+  }
+  return now.getUTCHours() * 60 + now.getUTCMinutes()
+}
+
+export function inQuietHours(q, tz, now = new Date()) {
   if (!q?.on) return false
-  const m = now.getUTCHours() * 60 + now.getUTCMinutes()
+  const m = localMinutes(tz, now)
   const [fh, fm] = String(q.from || '22:00').split(':').map(Number)
   const [th, tm] = String(q.to || '07:00').split(':').map(Number)
   const f = fh * 60 + fm, e = th * 60 + tm
@@ -160,6 +200,80 @@ function normStr(s) {
     .replace(/\p{M}/gu, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
+}
+
+function decodeEntities(s) {
+  const cp = (n) => {
+    try { return String.fromCodePoint(n) } catch { return '' }
+  }
+  return String(s || '')
+    .replace(/&#(\d+);/g, (_, n) => cp(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => cp(parseInt(n, 16)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+/** Bing wraps every article in a tracking redirect that changes between requests; the article's own address does not. */
+function articleUrl(rawLink) {
+  const link = decodeEntities(rawLink).trim()
+  try {
+    const inner = new URL(link).searchParams.get('url')
+    if (inner && /^https?:\/\//i.test(inner)) return inner
+  } catch { /* not a URL: keep as is */ }
+  return link
+}
+
+const LEVELS = new Set(['street', 'district', 'city', 'state', 'country'])
+const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '')
+
+/** Keeps only the fields the alert check uses, with bounded sizes, so a client cannot store arbitrary data here. */
+function cleanPlace(p) {
+  const parts = (Array.isArray(p?.parts) ? p.parts : [])
+    .slice(0, 6)
+    .map((x) => ({ level: LEVELS.has(x?.level) ? x.level : 'city', name: str(x?.name, 120).trim() }))
+    .filter((x) => x.name)
+  const label = str(p?.label, 200).trim()
+  if (!label || !parts.length) return null
+  const cc = str(p?.cc, 2).toUpperCase()
+  const alert = (Array.isArray(p?.alert) ? p.alert : []).filter((x) => typeof x === 'string').slice(0, 20).map((x) => x.slice(0, 24))
+  return {
+    label,
+    hash: str(p?.hash, 1500),
+    ...(/^[A-Z]{2}$/.test(cc) ? { cc } : {}),
+    parts,
+    ...(str(p?.cat, 40) ? { cat: str(p.cat, 40) } : {}),
+    ...(alert.length ? { alert } : {}),
+    ...(typeof p?.lat === 'number' && typeof p?.lon === 'number' ? { lat: p.lat, lon: p.lon } : {}),
+    alertNews: p?.alertNews !== false,
+    alertForum: p?.alertForum !== false,
+  }
+}
+
+function cleanQuiet(quiet) {
+  const out = {}
+  if (!quiet || typeof quiet !== 'object') return out
+  for (const [cat, q] of Object.entries(quiet).slice(0, 40)) {
+    const hhmm = (v, dflt) => (/^\d{2}:\d{2}$/.test(String(v)) ? String(v) : dflt)
+    out[cat.slice(0, 40)] = { on: q?.on === true, from: hhmm(q?.from, '22:00'), to: hhmm(q?.to, '07:00') }
+  }
+  return out
+}
+
+function cleanTimeZone(tz) {
+  try {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: str(tz, 64) }).resolvedOptions().timeZone
+  } catch {
+    return undefined
+  }
+}
+
+/** A favourite limited to certain topics (e.g. only crime and accidents) is alerted about those alone. */
+function wantedByTopic(place, items) {
+  if (!Array.isArray(place?.alert) || !place.alert.length) return items
+  return items.filter((it) => topicsOf(it.title, it.police === true).some((id) => place.alert.includes(id)))
 }
 
 function hasPlaceWord(text, mustKey) {
@@ -307,6 +421,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
               title: `🛡 Polisen · ${ev.type ? `${ev.type}: ${ev.summary || ev.name}` : ev.name}`,
               url: ev.url.startsWith('http') ? ev.url : `https://polisen.se${ev.url}`,
               kind: 'news',
+              police: true,
             })
             if (out.length >= 4) break
           }
@@ -330,7 +445,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
           const t = (b.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/)?.[1] ?? b.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '').trim()
           const l = (b.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? '').trim()
           if (t && l) {
-            out.push({ title: `🛡 Phuket Police · ${t}`, url: l, kind: 'news' })
+            out.push({ title: `🛡 Phuket Police · ${decodeEntities(t)}`, url: decodeEntities(l), kind: 'news', police: true })
             if (out.length >= 3) break
           }
         }
@@ -356,7 +471,8 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
           const t = (title?.[1] ?? title?.[2] ?? '').trim()
           const d = (desc?.[1] ?? desc?.[2] ?? '').replace(/<[^>]+>/g, ' ').trim()
           const l = (link?.[1] ?? '').trim()
-          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey)) out.push({ title: t, url: l, kind: 'news' })
+          // `raw` is the address as alerts stored it before articleUrl(): it keeps already-seen stories seen
+          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey)) out.push({ title: decodeEntities(t), url: articleUrl(l), raw: l, kind: 'news' })
         }
       }
     } catch { /* next */ }
@@ -401,7 +517,7 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
         const html = new TextDecoder('iso-8859-1').decode(await r.arrayBuffer())
         for (const m of html.matchAll(/<a[^>]+id=["']thread_title_(\d+)["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
           const href = m[2]
-          const title = m[3].replace(/<[^>]+>/g, '').trim()
+          const title = decodeEntities(m[3].replace(/<[^>]+>/g, '')).trim()
           if (title && href && hasPlaceWord(title, mustKey)) {
             out.push({ title, url: new URL(href, 'https://www.flashback.org').href, kind: 'forum' })
           }
@@ -465,6 +581,7 @@ export default {
       'Access-Control-Allow-Origin': isHttpOrigin ? origin : '*',
       Vary: 'Origin',
     }
+    if (!originOk) return new Response('Forbidden origin', { status: 403, headers: { Vary: 'Origin' } })
 
     if (req.method === 'OPTIONS') {
       return new Response(null, {
@@ -484,12 +601,11 @@ export default {
     if (url.pathname === '/push/poll' && req.method === 'POST') {
       try {
         const body = await req.json()
-        const places = Array.isArray(body?.places) ? body.places.slice(0, 25) : []
+        const places = (Array.isArray(body?.places) ? body.places.slice(0, 25) : []).map(cleanPlace).filter(Boolean)
         const sharedPolisen = createSharedPolisenLoader()
         const memo = new Map()
         const results = []
         for (const p of places) {
-          if (!p?.label || !Array.isArray(p?.parts) || !p.parts.length) continue
           const sig = placeSignature(p)
           if (!memo.has(sig)) {
             const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
@@ -503,7 +619,8 @@ export default {
               ]).then(([n, f]) => [...n, ...f]),
             )
           }
-          const combined = await memo.get(sig)
+          // Places sharing one check may still differ in the topics they want
+          const combined = wantedByTopic(p, await memo.get(sig))
           if (!combined.length) continue
           results.push({
             label: String(p.label),
@@ -533,14 +650,14 @@ export default {
       try {
         const body = await req.json()
         const sub = body?.subscription
-        if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
+        if (!isPushServiceUrl(sub?.endpoint) || !sub?.keys?.p256dh || !sub?.keys?.auth) {
           return new Response('Invalid subscription', { status: 400, headers: cors })
         }
         const pushRes = await deliverPush(
           sub,
           {
-            title: String(body.title || 'NewzLocal'),
-            body: String(body.body || 'Push notifications are active!'),
+            title: String(body.title || 'NewzLocal').slice(0, 120),
+            body: String(body.body || 'Push notifications are active!').slice(0, 300),
             tag: 'newzlocal-test',
             url: './',
           },
@@ -562,15 +679,22 @@ export default {
           const body = await req.json()
           const ep = body?.subscription?.endpoint
           const keys = body?.subscription?.keys
-          if (!ep || !keys?.p256dh || !keys?.auth) return new Response('Invalid subscription', { status: 400, headers: cors })
+          if (!isPushServiceUrl(ep) || typeof keys?.p256dh !== 'string' || typeof keys?.auth !== 'string' || keys.p256dh.length > 200 || keys.auth.length > 100) {
+            return new Response('Invalid subscription', { status: 400, headers: cors })
+          }
           const k = await subKey(ep)
           const existing = (await getSubRecord(env, k)) ?? {}
+          const places = (Array.isArray(body.places) ? body.places.slice(0, 30) : []).map(cleanPlace).filter(Boolean)
+          const labels = new Set(places.map((p) => p.label))
+          const tz = cleanTimeZone(body.tz)
           await putSubRecord(env, k, {
             subscription: { endpoint: ep, keys: { p256dh: keys.p256dh, auth: keys.auth } },
             lang: String(body.lang || 'en').slice(0, 5),
-            quiet: body.quiet ?? {},
-            places: Array.isArray(body.places) ? body.places.slice(0, 30) : [],
-            seen: existing.seen ?? {},
+            quiet: cleanQuiet(body.quiet),
+            ...(tz ? { tz } : {}),
+            places,
+            // forget what was seen for places that are no longer watched, so the record cannot grow without bound
+            seen: Object.fromEntries(Object.entries(existing.seen ?? {}).filter(([label]) => labels.has(label))),
             updatedAt: Date.now(),
           })
           return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -592,7 +716,7 @@ export default {
     // --- Keyed news APIs ---
     const kp = Object.keys(KEYED).find((p) => url.pathname.startsWith(p + '/'))
     if (kp && req.method === 'GET') {
-      if (!origin || !originOk) return new Response('Forbidden', { status: 403, headers: cors })
+      if (!origin || !isTrustedOrigin(origin, env)) return new Response('Forbidden', { status: 403, headers: cors })
       const [base, secret, param] = KEYED[kp]
       if (!env[secret]) return new Response('API key not configured', { status: 503, headers: cors })
       const target = new URL(base + url.pathname.slice(kp.length))
@@ -838,7 +962,7 @@ export default {
       if (!rec?.subscription?.endpoint || !Array.isArray(rec.places)) continue
       for (const p of rec.places) {
         if (!p?.label || !Array.isArray(p?.parts) || !p.parts.length) continue
-        if (p.cat && inQuietHours(rec.quiet?.[p.cat])) continue
+        if (p.cat && inQuietHours(rec.quiet?.[p.cat], rec.tz)) continue
         const sig = placeSignature(p)
         if (!uniqueMap.has(sig)) uniqueMap.set(sig, p)
       }
@@ -874,7 +998,7 @@ export default {
       let deadSub = false
 
       for (const p of rec.places) {
-        if (!p?.label || (p.cat && inQuietHours(rec.quiet?.[p.cat]))) continue
+        if (!p?.label || (p.cat && inQuietHours(rec.quiet?.[p.cat], rec.tz))) continue
         const sig = placeSignature(p)
         if (!placeResults.has(sig)) continue
         const combined = placeResults.get(sig) ?? []
@@ -882,9 +1006,12 @@ export default {
 
         const prev = rec.seen?.[p.label]
         const isFirstSeed = !Array.isArray(prev)
-        const fresh = isFirstSeed ? [] : combined.filter((s) => !prev.includes(s.url))
+        const isNew = (s) => !prev.includes(s.url) && !(s.raw && prev.includes(s.raw))
+        // Everything found is remembered as seen; only stories in the favourite's chosen topics raise an alert
+        const fresh = isFirstSeed ? [] : wantedByTopic(p, combined.filter(isNew))
+        const anyNew = isFirstSeed || combined.some(isNew)
 
-        if (isFirstSeed || fresh.length > 0) {
+        if (anyNew) {
           rec.seen = {
             ...rec.seen,
             [p.label]: [...new Set([...combined.map((s) => s.url), ...(isFirstSeed ? [] : prev)])].slice(0, 250),

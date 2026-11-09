@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { type Area, at, boundaries, bounds, kidsOf, labelPoint, norm } from './areas'
 import type { Lang } from './i18n'
+import { KURDISTAN_CENTER, KURDISTAN_NAME, KURDISTAN_OUTLINE } from './kurdistan'
 import { type Article, type Place, reverse, reverseCountry } from './lib'
 import { type MapMode, earthStyle, skyFor } from './mapStyle'
 import { type Street, circle, subPieces } from './overpass'
@@ -151,6 +152,53 @@ export function useGlobe({
       const isPaper = mode === 'paper'
       const font = (m.getStyle().layers.find((l) => l.type === 'symbol')?.layout as { 'text-font'?: string[] } | undefined)?.['text-font']
 
+      // Kurdistan, drawn the way the basemap draws every other country: the same border line and the same name label.
+      if (!m.getSource('kurdistan')) {
+        type StyleLayer = { id: string; layout?: Record<string, unknown>; paint?: Record<string, unknown> }
+        const styleLayers = m.getStyle().layers as StyleLayer[]
+        const border = styleLayers.find((l) => l.id === 'boundary_2')
+        m.addSource('kurdistan', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: KURDISTAN_OUTLINE } as never })
+        m.addLayer({
+          id: 'kurdistan-border',
+          type: 'line',
+          source: 'kurdistan',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': border?.paint?.['line-color'] ?? (isPaper ? '#c8321e' : '#ff6a4a'),
+            'line-opacity': border?.paint?.['line-opacity'] ?? 0.9,
+            'line-width': border?.paint?.['line-width'] ?? ['interpolate', ['linear'], ['zoom'], 3, 1, 5, 1.2, 12, 3],
+          },
+        } as never)
+        // Text needs the basemap's glyphs; the bare satellite fallback style has none.
+        if (m.getStyle().glyphs) {
+          const country = styleLayers.find((l) => l.id === 'label_country_3') ?? styleLayers.find((l) => /^label_country/.test(l.id))
+          const { 'text-field': _field, ...countryLayout } = country?.layout ?? {}
+          m.addSource('kurdistan-name', {
+            type: 'geojson',
+            data: { type: 'Feature', properties: { name: KURDISTAN_NAME }, geometry: { type: 'Point', coordinates: KURDISTAN_CENTER } },
+          })
+          m.addLayer({
+            id: 'kurdistan-label',
+            type: 'symbol',
+            source: 'kurdistan-name',
+            minzoom: 2,
+            maxzoom: 9,
+            layout: {
+              'text-size': ['interpolate', ['linear'], ['zoom'], 3, 9, 7, 17],
+              'text-max-width': 6.25,
+              ...(font ? { 'text-font': font } : {}),
+              ...countryLayout,
+              'text-field': ['get', 'name'],
+            },
+            paint: country?.paint ?? {
+              'text-color': isPaper ? '#14100b' : '#ffffff',
+              'text-halo-color': isPaper ? '#f5ecd7' : 'rgba(8,10,16,.85)',
+              'text-halo-width': 1.6,
+            },
+          } as never)
+        }
+      }
+
       if (!m.getSource('areas')) {
         m.addSource('areas', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, generateId: true })
         m.addLayer({
@@ -285,7 +333,8 @@ export function useGlobe({
         const hit = (pt && at(feats, pt)) || (adm1 && feats.find((f) => norm(f.properties.name) === norm(adm1)))
         if (a1 && hit) {
           setAreaProgress({ id: me, step: 2, pct: 50, estSec: withSub ? 5 : 2 })
-          const a2 = await boundaries(c.cc, 2).catch(() => null)
+          // a province of Kurdistan gets its districts from the state it lies in
+          const a2 = await boundaries(hit.properties.cc ?? c.cc, 2).catch(() => null)
           if (me !== seqRef.current || ctrl.signal.aborted) return
           if (a2) {
             const kids = kidsOf(hit, a2)
