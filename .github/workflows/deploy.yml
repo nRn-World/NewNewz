@@ -65,6 +65,8 @@ jobs:
     needs: [worker]
     if: always() && (needs.worker.result == 'success' || needs.worker.result == 'skipped')
     runs-on: ubuntu-latest
+    outputs:
+      base_url: ${{ steps.pages.outputs.base_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -75,6 +77,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Configure Pages
+        id: pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
       - run: npm ci
       - run: npm run lint
       - run: npm test
@@ -128,3 +134,25 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+      - name: Verify the published site is reachable
+        env:
+          SITE_URL: ${{ needs.build.outputs.base_url }}
+        run: |
+          base="${SITE_URL%/}"
+          if [ -z "$base" ]; then
+            echo "::error title=Pages URL unknown::actions/configure-pages did not return a base URL, so the Pages site is not configured for this repository."
+            exit 1
+          fi
+          status="000"
+          for _ in $(seq 1 12); do
+            status=$(curl -sS -o /dev/null -w '%{http_code}' "$base/" || true)
+            [ "$status" = "200" ] && break
+            sleep 10
+          done
+          manifest=$(curl -sS -o /dev/null -w '%{http_code}' "$base/manifest.webmanifest" || true)
+          echo "GET $base/ -> $status"
+          echo "GET $base/manifest.webmanifest -> $manifest"
+          if [ "$status" != "200" ] || [ "$manifest" != "200" ]; then
+            echo "::error title=Published site not reachable::$base/ returned HTTP $status (manifest: HTTP $manifest) after deployment. Check Settings -> Pages: Source must be 'GitHub Actions' and this repository must not carry a custom domain that shadows the project site."
+            exit 1
+          fi
