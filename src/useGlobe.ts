@@ -379,18 +379,26 @@ export function useGlobe({
       const country = p.parts[p.parts.length - 1]
       if (p.cc && country?.level === 'country') {
         const stateHint = p.parts.find((x) => x.level === 'state')?.name ?? (targetPart.level === 'city' ? targetPart.name : undefined)
-        showAreas(
-          { cc: p.cc, country: country.name },
-          stateHint,
-          undefined,
-          ['street', 'district', 'city'].includes(targetPart.level) ? [p.lon, p.lat] : undefined,
-          targetPart.level === 'district',
-        ).then((box) => {
-          const lv = targetPart.level
-          if (fly && m && box && (lv === 'state' || lv === 'country')) {
-            m.fitBounds(box, { padding: 40, pitch: lv === 'state' ? 40 : 0, duration: 2000, maxZoom: 11 })
-          }
-        })
+        const run = () =>
+          showAreas(
+            { cc: p.cc, country: country.name },
+            stateHint,
+            undefined,
+            ['street', 'district', 'city'].includes(targetPart.level) ? [p.lon, p.lat] : undefined,
+            targetPart.level === 'district',
+          ).then((box) => {
+            const lv = targetPart.level
+            if (fly && m && box && (lv === 'state' || lv === 'country')) {
+              m.fitBounds(box, { padding: 40, pitch: lv === 'state' ? 40 : 0, duration: 2000, maxZoom: 11 })
+            }
+          })
+        if (fly && m) {
+          // let the map tiles finish after the fly-in before the big boundary files compete for bandwidth and the main thread
+          let started = false
+          const go = () => { if (!started) { started = true; void run() } }
+          m.once('idle', go)
+          setTimeout(go, 6000)
+        } else void run()
       }
     },
     [drawPins, placePin, showAreas],
