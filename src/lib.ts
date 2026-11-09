@@ -206,6 +206,25 @@ async function nominatim(q: string, signal?: AbortSignal): Promise<Place[]> {
 }
 
 const searchCache = new Map<string, Place[]>()
+const suggestCache = new Map<string, Place[]>()
+
+/**
+ * Suggestions while the user is still typing. Photon is built for this and forgives typos ("Stokholm" finds
+ * Stockholm); Nominatim's usage policy forbids autocomplete, so it is only used for the full search on Enter.
+ */
+export async function suggest(q: string, lang = 'en', signal?: AbortSignal): Promise<Place[]> {
+  const clean = q.trim()
+  if (clean.length < 3) return []
+  const ck = clean.toLowerCase()
+  const hit = suggestCache.get(ck)
+  if (hit) return hit
+  const own = isKurdistanName(clean) ? [kurdistanPlace()] : []
+  const hits = [...own, ...(await photon(clean, lang, signal))]
+  const out = hits.filter((h, i) => hits.findIndex((x) => label(x) === label(h)) === i)
+  if (suggestCache.size > 200) suggestCache.clear()
+  suggestCache.set(ck, out)
+  return out
+}
 
 /** Searches full home addresses ("Ribegatan 31, 164 45 Kista"), streets, districts, cities and countries. */
 export async function search(q: string, lang = 'en', signal?: AbortSignal): Promise<Place[]> {
