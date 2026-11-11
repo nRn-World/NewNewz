@@ -41,7 +41,7 @@ export function ProgressBox({
         <span className="progmeta">
           {t('estLeft', { n: String(remaining) })} · {smoothPct}%
           {onCancel && (
-            <button type="button" className="prog-x" onClick={onCancel} aria-label="×">
+            <button type="button" className="prog-x" onClick={onCancel} aria-label={t('close')}>
               ×
             </button>
           )}

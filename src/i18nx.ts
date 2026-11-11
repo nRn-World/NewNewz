@@ -4,6 +4,7 @@ import type { Lang } from './i18n'
 type D = Record<string, string>
 
 const en: D = {
+  close: 'Close', preview: 'Preview',
   tAll: 'All topics', tPolice: 'Police', tCrime: 'Crime', tTraffic: 'Traffic', tHousing: 'Housing', tSchools: 'Schools', tSport: 'Sport', tPolitics: 'Politics',
   tBusiness: 'Business', tWeather: 'Weather', tAccident: 'Accidents & fire', tCulture: 'Culture', tHealth: 'Health',
   sumNow: 'Right now:', report: 'Neighbourhood report', repWeek: '{n} items in the last 7 days', repUsual: 'usual {n} per week',
@@ -38,6 +39,7 @@ const en: D = {
 }
 
 const sv: D = {
+  close: 'Stäng', preview: 'Förhandsvisning',
   tAll: 'Alla ämnen', tPolice: 'Polis', tCrime: 'Brott', tTraffic: 'Trafik', tHousing: 'Bostäder', tSchools: 'Skolor', tSport: 'Sport', tPolitics: 'Politik',
   tBusiness: 'Ekonomi', tWeather: 'Väder', tAccident: 'Olyckor & brand', tCulture: 'Kultur', tHealth: 'Hälsa',
   sumNow: 'Just nu:', report: 'Grannskapsrapport', repWeek: '{n} nyheter senaste 7 dagarna', repUsual: 'vanligt {n} per vecka',
@@ -72,6 +74,7 @@ const sv: D = {
 }
 
 const tr_: D = {
+  close: 'Kapat', preview: 'Önizleme',
   tAll: 'Tüm konular', tPolice: 'Polis', tCrime: 'Suç', tTraffic: 'Trafik', tHousing: 'Konut', tSchools: 'Okullar', tSport: 'Spor', tPolitics: 'Siyaset',
   tBusiness: 'Ekonomi', tWeather: 'Hava', tAccident: 'Kazalar ve yangın', tCulture: 'Kültür', tHealth: 'Sağlık',
   sumNow: 'Şu an:', report: 'Mahalle raporu', repWeek: 'Son 7 günde {n} haber', repUsual: 'normalde haftada {n}',
@@ -106,6 +109,7 @@ const tr_: D = {
 }
 
 const ar: D = {
+  close: 'إغلاق', preview: 'معاينة',
   tAll: 'كل المواضيع', tPolice: 'الشرطة', tCrime: 'جريمة', tTraffic: 'مرور', tHousing: 'سكن', tSchools: 'مدارس', tSport: 'رياضة', tPolitics: 'سياسة',
   tBusiness: 'اقتصاد', tWeather: 'طقس', tAccident: 'حوادث وحرائق', tCulture: 'ثقافة', tHealth: 'صحة',
   sumNow: 'الآن:', report: 'تقرير الحي', repWeek: '{n} خبر في آخر 7 أيام', repUsual: 'المعتاد {n} أسبوعيًا',
@@ -140,6 +144,7 @@ const ar: D = {
 }
 
 const es: D = {
+  close: 'Cerrar', preview: 'Vista previa',
   tAll: 'Todos los temas', tPolice: 'Policía', tCrime: 'Sucesos', tTraffic: 'Tráfico', tHousing: 'Vivienda', tSchools: 'Colegios', tSport: 'Deportes', tPolitics: 'Política',
   tBusiness: 'Economía', tWeather: 'Tiempo', tAccident: 'Accidentes e incendios', tCulture: 'Cultura', tHealth: 'Salud',
   sumNow: 'Ahora:', report: 'Informe del barrio', repWeek: '{n} noticias en 7 días', repUsual: 'normal {n} por semana',
@@ -174,6 +179,7 @@ const es: D = {
 }
 
 const fr: D = {
+  close: 'Fermer', preview: 'Aperçu',
   tAll: 'Tous les sujets', tPolice: 'Police', tCrime: 'Faits divers', tTraffic: 'Circulation', tHousing: 'Logement', tSchools: 'Écoles', tSport: 'Sport', tPolitics: 'Politique',
   tBusiness: 'Économie', tWeather: 'Météo', tAccident: 'Accidents et incendies', tCulture: 'Culture', tHealth: 'Santé',
   sumNow: 'En ce moment :', report: 'Rapport de quartier', repWeek: '{n} articles en 7 jours', repUsual: 'habituellement {n} par semaine',
@@ -208,6 +214,7 @@ const fr: D = {
 }
 
 const de: D = {
+  close: 'Schließen', preview: 'Vorschau',
   tAll: 'Alle Themen', tPolice: 'Polizei', tCrime: 'Kriminalität', tTraffic: 'Verkehr', tHousing: 'Wohnen', tSchools: 'Schulen', tSport: 'Sport', tPolitics: 'Politik',
   tBusiness: 'Wirtschaft', tWeather: 'Wetter', tAccident: 'Unfälle & Brände', tCulture: 'Kultur', tHealth: 'Gesundheit',
   sumNow: 'Gerade:', report: 'Kiez-Bericht', repWeek: '{n} Meldungen in 7 Tagen', repUsual: 'üblich {n} pro Woche',
@@ -243,6 +250,7 @@ const de: D = {
 
 // Kurmancî (Latin script)
 const ku: D = {
+  close: 'Bigire', preview: 'Pêşdîtin',
   tAll: 'Hemû mijar', tPolice: 'Polîs', tCrime: 'Sûc', tTraffic: 'Trafîk', tHousing: 'Xanî', tSchools: 'Dibistan', tSport: 'Werzîş', tPolitics: 'Siyaset',
   tBusiness: 'Aborî', tWeather: 'Hewa', tAccident: 'Qeza û şewat', tCulture: 'Çand', tHealth: 'Tenduristî',
   sumNow: 'Niha:', report: 'Rapora taxê', repWeek: 'Di 7 rojên dawî de {n} nûçe', repUsual: 'bi gelemperî hefteyê {n}',

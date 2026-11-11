@@ -609,6 +609,9 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     expect(touristItems[0].police).toBe(true)
     expect(touristItems[0].image).toBe('https://phuket.tourist.police.go.th/wp-content/uploads/2026/11/rescue.jpg')
     expect(matchesTarget(touristItems[0], target(phuketPlace, 0))).toBe(true)
+    // the jurisdiction is match-only text: translate() shows `orig` as the headline, so it must not live there
+    expect(touristItems[0].orig).toBeUndefined()
+    expect(touristItems[0].where).toContain('Phuket')
 
     // Unrelated national Royal Thai Police item from Chiang Mai must NOT leak into Phuket
     const nationalRss = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>

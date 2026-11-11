@@ -112,7 +112,7 @@ footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var
   .dateline>span{display:none}
   .dateline{justify-content:flex-end;border-bottom:0;padding-bottom:0}
   header{padding-bottom:6px}
-  .maplibregl-ctrl-bottom-right,.maplibregl-ctrl-bottom-left{bottom:calc(50% + 12px);transition:bottom .22s ease}
+  .app .maplibregl-ctrl-bottom-right,.app .maplibregl-ctrl-bottom-left{bottom:calc(50% + 12px);transition:bottom .22s ease}
   .app:has(.panel.snap-peek) .maplibregl-ctrl-bottom-right,.app:has(.panel.snap-peek) .maplibregl-ctrl-bottom-left{bottom:calc(16% + 12px)}
   .app:has(.panel.snap-full) .maplibregl-ctrl-bottom-right,.app:has(.panel.snap-full) .maplibregl-ctrl-bottom-left{bottom:calc(88% + 12px)}
 }
@@ -269,7 +269,7 @@ footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var
 .modal .card{position:relative;width:min(760px,96vw);max-height:90vh;overflow:auto;background:var(--paper);border:2px solid var(--ink);box-shadow:8px 8px 0 var(--red);padding:20px 22px}
 .modal h2{margin:0 0 12px;font:900 26px Fraunces,Georgia,serif}
 .modal table{width:100%;border-collapse:collapse;font-size:14px}
-.modal th,.modal td{border-top:1px solid var(--ink);padding:6px 8px;text-align:left;vertical-align:top}
+.modal th,.modal td{border-top:1px solid var(--ink);padding:6px 8px;text-align:start;vertical-align:top}
 .modal thead th{border-top:0;font:900 15px Fraunces,Georgia,serif}
 .modal tbody th{font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:12px;width:26%}
 .bar{height:6px;background:var(--paper2);margin-top:4px}.bar i{display:block;height:100%;background:var(--red)}
@@ -315,7 +315,7 @@ footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var
 /* Headline search filter + sort bar */
 .filterbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .filterinput{position:relative;flex:1;min-width:130px;display:flex;align-items:center}
-.filterinput input{padding:5px 22px 5px 2px;font-size:13px}
+.filterinput input{padding:5px 2px;padding-inline-end:22px;font-size:13px}
 .filterinput button{position:absolute;inset-inline-end:0;border:0;background:none;padding:2px 5px;font-weight:700;color:var(--red)}
 .sortbtns{display:flex;gap:4px}
 

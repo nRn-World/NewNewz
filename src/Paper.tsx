@@ -8,6 +8,7 @@ type Props = {
   pageWord: string
   tabName: string
   clipLabel?: string
+  closeLabel?: string
   ago: (d: Date) => string
   onClip?: (a: Article) => void
   onHome?: () => void
@@ -47,7 +48,7 @@ const Masthead = () => (
 )
 
 /** The news list as an old newspaper: newest on the front page, oldest on the last one. Flip with buttons, arrow keys, mouse drag or a swipe. */
-export default function Paper({ articles, place, date, pageWord, tabName, clipLabel = 'Clip', ago, onClip, onHome, onClose }: Props) {
+export default function Paper({ articles, place, date, pageWord, tabName, clipLabel = 'Clip', closeLabel = 'Close', ago, onClip, onHome, onClose }: Props) {
   const pages = [articles.slice(0, FRONT)]
   for (let i = FRONT; i < articles.length; i += PER) pages.push(articles.slice(i, i + PER))
   const [page, setPage] = useState(0)
@@ -111,7 +112,7 @@ export default function Paper({ articles, place, date, pageWord, tabName, clipLa
 
   return (
     <div className="paper" role="dialog" aria-modal="true" aria-label={`NewzLocal – ${place}`} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <button ref={closeRef} className="paper-x" onClick={onClose} aria-label="×">×</button>
+      <button ref={closeRef} className="paper-x" onClick={onClose} aria-label={closeLabel}>×</button>
       <button className="paper-nav prev" onClick={() => go(page + (isRtl ? 1 : -1))} disabled={isRtl ? page === pages.length - 1 : page === 0} aria-label="‹">‹</button>
       <button className="paper-nav next" onClick={() => go(page + (isRtl ? -1 : 1))} disabled={isRtl ? page === 0 : page === pages.length - 1} aria-label="›">›</button>
       <div className="stack s1" aria-hidden />

@@ -52,6 +52,8 @@ export type Article = {
   forum?: boolean
   police?: boolean
   orig?: string
+  /** Extra location text (police jurisdiction etc.) used only to match the place, never shown. */
+  where?: string
   approx?: boolean
   lang?: string
   scopeTag?: string
@@ -573,7 +575,9 @@ async function bingHeadlines(query: string, country: string, when: string, signa
 }
 
 // Google News RSS via direct Android APK fetch, VITE_GN_URL, edge-cached Worker /gn, and browser CORS bridges.
-const GN_ENV = import.meta.env.VITE_GN_URL as string | undefined
+// Google blocks Cloudflare's IPs, so the Worker's /gn answers 502; the Vercel proxy (gn-proxy/) is the default
+// in every build, not only the ones CI configures.
+const GN_ENV: string | undefined = (import.meta.env.VITE_GN_URL as string | undefined) || 'https://newzlocal-gn.vercel.app/api/gn'
 const GN_COOKIE = 'SOCS=CAESHAgBEhJnd3NfMjAyNDAxMDEtMF9SQzIaAmVuIAEaBgiAo_CmBg; CONSENT=YES+cb.20240101-01-p0.en+FX+999'
 let gnProxyDown = false
 
@@ -1010,7 +1014,7 @@ export function target(place: Place, from: number) {
 }
 
 export function matchesTarget(a: Article, t: ReturnType<typeof target>): boolean {
-  const hay = `${a.title} ${a.orig ?? ''} ${a.summary ?? ''}`
+  const hay = `${a.title} ${a.orig ?? ''} ${a.summary ?? ''} ${a.where ?? ''}`
   if (!mentionsPlace(hay, t.aliases)) return false
   if (t.mustMatchParent && t.parentAliases.length > 0) {
     return mentionsPlace(hay, t.parentAliases)
@@ -1034,7 +1038,7 @@ export function mergeAll(
     .filter((a, i, all) => all.findIndex((b) => b.url === a.url || norm(b.title) === norm(a.title)) === i)
     .filter((a) => {
       if (!aliasList.length) return true
-      const hay = `${a.title} ${a.orig ?? ''} ${a.summary ?? ''}`
+      const hay = `${a.title} ${a.orig ?? ''} ${a.summary ?? ''} ${a.where ?? ''}`
       if (!mentionsPlace(hay, aliasList)) return false
       if (parentAliases?.length && !mentionsPlace(hay, parentAliases)) return false
       return true
@@ -1138,10 +1142,14 @@ export async function news(
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const got = await Promise.allSettled(editions.map((e) => headlines(q, e, w, signal)))
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    got.forEach((x) => {
+    got.forEach((x, i) => {
       if (x.status === 'fulfilled') {
         ok++
-        lists.push(tagItems(x.value))
+        // A country's own press rarely names the country in a headline ("Experter: chanserna har ökat"), so what
+        // its own edition returns for the country's name counts as being about it. Background favourite checks
+        // (no onPartial) stay strict, or a country favourite would alert on every domestic story.
+        const homeNews = primary.own.level === 'country' && editions[i] === cc && (deep || !!onPartial)
+        lists.push(tagItems(homeNews ? x.value.map((a) => ({ ...a, where: primary.cleanName })) : x.value))
       }
     })
     emit()
@@ -1184,8 +1192,9 @@ export async function news(
           headlines(pq.query, pq.editionCc, archiveWin, signal)
             .then((items) => {
               ok++
+              // search engines pad these queries with loosely related stories; only real police items get the badge
               const taggedPolice = pq.forcePoliceTag
-                ? items.map((a) => ({ ...a, police: true }))
+                ? items.map((a) => (a.police || topicsOf(`${a.title} ${a.summary ?? ''}`).includes('Police') ? { ...a, police: true } : a))
                 : items
               const matched = tagItems(taggedPolice)
               if (matched.length) {
@@ -1203,8 +1212,11 @@ export async function news(
   if (monthsBack > 0) {
     for (const q of primary.queries) await win(q, archiveWin)
   } else if (!deep) {
-    await win(primary.queries[0], '1d')
+    await Promise.all([win(primary.queries[0], '1h'), win(primary.queries[0], '1d')])
   } else {
+    // Unwindowed results come back by relevance, so a busy place fills all 100 slots without its last hour:
+    // always ask for the newest hour as well (measured: newest story 42 min old without it, 4 min with it).
+    const freshest = win(primary.queries[0], '1h').catch(() => 0)
     let maxInitialRaw = 0
     for (let i = 0; i < primary.queries.length; i += 2) {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -1254,6 +1266,9 @@ export async function news(
         })
         .catch(() => {})
     }
+
+    await freshest
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
 
     if (!isLocalProxyBlocked() && currentMerged().length < Math.min(want, 70)) {
       const q = !primary.mustMatchParent && primary.cleanName.length >= 4 ? `"${primary.cleanName}"` : primary.queries[0]

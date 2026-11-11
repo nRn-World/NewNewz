@@ -39,7 +39,7 @@ export default function InstallPrompt({
   return (
     <div className="apk-backdrop" role="dialog" aria-modal="true" aria-labelledby="apk-dialog-title">
       <div className="apk-modal">
-        <button type="button" className="apk-close" onClick={onDismiss} aria-label="×">
+        <button type="button" className="apk-close" onClick={onDismiss} aria-label={t('close')}>
           ×
         </button>
 
