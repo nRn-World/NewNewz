@@ -895,8 +895,8 @@ export default function App() {
                           <button
                             type="button"
                             className="toolbtn on"
-                            title={t('delFav')}
-                            aria-label={t('delFav')}
+                            title={t('removeSource')}
+                            aria-label={t('removeSource')}
                             onClick={() => setSaved((prev) => toggleSavedItem(prev, s))}
                           >
                             ★
@@ -1029,7 +1029,7 @@ export default function App() {
                     aria-label={t('filterNews')}
                   />
                   {newsFilter && (
-                    <button type="button" onClick={() => setNewsFilter('')} aria-label="×">
+                    <button type="button" onClick={() => setNewsFilter('')} aria-label={t('close')}>
                       ×
                     </button>
                   )}
@@ -1085,7 +1085,8 @@ export default function App() {
                             className={isReader ? 'toolbtn on' : 'toolbtn'}
                             onClick={() => toggleReader(a)}
                             aria-expanded={isReader}
-                            title="Reader"
+                            title={t('preview')}
+                            aria-label={t('preview')}
                           >
                             {isReader ? '▴' : '▾'}
                           </button>
@@ -1182,6 +1183,7 @@ export default function App() {
           pageWord={t('page')}
           tabName={t('myPaper')}
           clipLabel={t('clipStory')}
+          closeLabel={t('close')}
           ago={(d) => ago(d, lang)}
           onClip={(a) => handleClipStory(a, t('myPaperPlace'))}
           onHome={() => goHome()}
@@ -1196,6 +1198,7 @@ export default function App() {
           pageWord={t('page')}
           tabName={t(tab === 'forum' ? 'forum' : 'news')}
           clipLabel={t('clipStory')}
+          closeLabel={t('close')}
           ago={(d) => ago(d, lang)}
           onClip={(a) => handleClipStory(a)}
           onHome={() => goHome()}

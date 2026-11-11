@@ -64,7 +64,7 @@ export default function Compare({ places, t, onClose }: { places: Place[]; t: T;
   return (
     <div className="modal" role="dialog" aria-modal="true" aria-labelledby="cmp-title" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="card">
-        <button ref={closeRef} className="paper-x" onClick={onClose} aria-label="×">×</button>
+        <button ref={closeRef} className="paper-x" onClick={onClose} aria-label={t('close')}>×</button>
         <h2 id="cmp-title">{t('compareTitle')}</h2>
         {failed ? (
           <p className="err">{t('err.source')}</p>
