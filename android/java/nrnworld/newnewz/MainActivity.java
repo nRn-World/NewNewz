@@ -1,4 +1,4 @@
-package one.nrnworld.newnewz;
+package nrnworld.newnewz;
 
 import android.app.Activity;
 import android.content.Context;

@@ -1,4 +1,4 @@
-package one.nrnworld.newnewz;
+package nrnworld.newnewz;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
