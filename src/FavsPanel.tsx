@@ -151,7 +151,7 @@ export default function FavsPanel({
   const handleTestPush = async () => {
     if (testState === 'sending') return
     setTestState('sending')
-    await sendTestPush('NewzLocal', t('notifyOn'))
+    await sendTestPush('NewNewz', t('notifyOn'))
     setTestState('done')
     setTimeout(() => setTestState('idle'), 3000)
   }
@@ -485,7 +485,7 @@ export default function FavsPanel({
           <input
             value={workerDraft}
             onChange={(e) => setWorkerDraft(e.target.value)}
-            placeholder="https://newzlocal-proxy.<subdomain>.workers.dev"
+            placeholder="https://newnewz-proxy.<subdomain>.workers.dev"
             aria-label={t('workerLabel')}
           />
           <button type="submit">OK</button>

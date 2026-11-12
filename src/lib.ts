@@ -14,13 +14,13 @@ import { fetchDirectPoliceFeeds, isOfficialPoliceUrl, policeSearchQueries } from
 import { STOP, topicsOf } from './topics'
 import { encodePlace } from './urlState'
 
-const DEFAULT_WORKER_URL = 'https://newzlocal-proxy.bynrnworld.workers.dev'
+const DEFAULT_WORKER_URL = 'https://newnewz-proxy.bynrnworld.workers.dev'
 
 function resolveApiBase(): string {
   const fromEnv = (import.meta.env.VITE_PROXY_URL || import.meta.env.VITE_API_URL) as string | undefined
   if (fromEnv) return fromEnv.replace(/\/+$/, '')
   try {
-    const custom = localStorage.getItem('newzlocal.workerUrl')?.trim()
+    const custom = localStorage.getItem('newnewz.workerUrl')?.trim()
     if (custom && /^https:\/\/[a-z0-9.-]+/i.test(custom)) return custom.replace(/\/+$/, '')
   } catch { /* ignore */ }
   if (typeof window !== 'undefined') return DEFAULT_WORKER_URL
@@ -577,7 +577,7 @@ async function bingHeadlines(query: string, country: string, when: string, signa
 // Google News RSS via direct Android APK fetch, VITE_GN_URL, edge-cached Worker /gn, and browser CORS bridges.
 // Google blocks Cloudflare's IPs, so the Worker's /gn answers 502; the Vercel proxy (gn-proxy/) is the default
 // in every build, not only the ones CI configures.
-const GN_ENV: string | undefined = (import.meta.env.VITE_GN_URL as string | undefined) || 'https://newzlocal-gn.vercel.app/api/gn'
+const GN_ENV: string | undefined = (import.meta.env.VITE_GN_URL as string | undefined) || 'https://newnewz-gn.vercel.app/api/gn'
 const GN_COOKIE = 'SOCS=CAESHAgBEhJnd3NfMjAyNDAxMDEtMF9SQzIaAmVuIAEaBgiAo_CmBg; CONSENT=YES+cb.20240101-01-p0.en+FX+999'
 let gnProxyDown = false
 
@@ -1068,7 +1068,7 @@ export function alertCc(place: Place): string | undefined {
 const LADDER = ['1h', '3h', '6h', '12h', '1d', '2d', '4d', '7d', '14d', '30d', '90d', '180d', '1y']
 const FULL = 95
 
-const SRC = 'newzlocal.sources'
+const SRC = 'newnewz.sources'
 /** Reads a stored list, dropping anything that is not the expected shape (hand-edited or corrupted storage must not crash the app). */
 function loadList<T>(key: string, ok: (x: unknown) => boolean): T[] {
   try {
@@ -1679,7 +1679,7 @@ export function rankImportantForum(threads: Article[], limit = 8): Article[] {
 }
 
 // Persistent LRU translation cache (in-memory + localStorage up to 600 headlines)
-const TCACHE_KEY = 'newzlocal.tcache'
+const TCACHE_KEY = 'newnewz.tcache'
 const TCACHE_MAX = 600
 const tcache = new Map<string, string>()
 let tcacheLoaded = false
@@ -1828,7 +1828,7 @@ export async function fetchReaderPreview(a: Article, lang: string): Promise<{ su
 
 export function getWorkerUrl(): string {
   try {
-    return localStorage.getItem('newzlocal.workerUrl') ?? ''
+    return localStorage.getItem('newnewz.workerUrl') ?? ''
   } catch {
     return ''
   }
@@ -1837,8 +1837,8 @@ export function getWorkerUrl(): string {
 export function setWorkerUrl(url: string) {
   try {
     const clean = url.trim().replace(/\/+$/, '')
-    if (clean) localStorage.setItem('newzlocal.workerUrl', clean)
-    else localStorage.removeItem('newzlocal.workerUrl')
+    if (clean) localStorage.setItem('newnewz.workerUrl', clean)
+    else localStorage.removeItem('newnewz.workerUrl')
   } catch { /* ignore */ }
 }
 
@@ -1850,7 +1850,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 /** Shows a native notification safely on Android APK, Android/iOS Home-Screen PWA, and Desktop browsers. */
-export async function showAppNotification(title: string, body: string, url = './', tag = 'newzlocal'): Promise<void> {
+export async function showAppNotification(title: string, body: string, url = './', tag = 'newnewz'): Promise<void> {
   if (notifyViaNativeAndroid(title, body, url, tag)) return
   if (!('Notification' in window) || Notification.permission !== 'granted') return
   try {
@@ -1931,7 +1931,7 @@ export async function sendTestPush(title: string, body: string): Promise<'push' 
   if (isNativeAndroidApp()) {
     const p = await requestAppNotificationPermission()
     if (p !== 'granted') return 'failed'
-    return notifyViaNativeAndroid(title, body, './', 'newzlocal-test') ? 'push' : 'failed'
+    return notifyViaNativeAndroid(title, body, './', 'newnewz-test') ? 'push' : 'failed'
   }
   if (!('Notification' in window)) return 'failed'
   if (Notification.permission !== 'granted') {
@@ -1965,11 +1965,11 @@ export async function sendTestPush(title: string, body: string): Promise<'push' 
       }
     } catch { /* fall back to local SW notification */ }
   }
-  await showAppNotification(title, body, './', 'newzlocal-test')
+  await showAppNotification(title, body, './', 'newnewz-test')
   return 'local'
 }
 
-const FAV = 'newzlocal.favs'
+const FAV = 'newnewz.favs'
 export const loadFavs = (): Place[] =>
   loadList<Place>(FAV, (x) => {
     const p = x as Partial<Place> | null
@@ -1982,12 +1982,12 @@ export type Quiet = { on: boolean; from: string; to: string }
 export const QUIET0: Quiet = { on: false, from: '22:00', to: '07:00' }
 export const loadQuiet = (): Record<string, Quiet> => {
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem('newzlocal.quietCats') ?? '{}')
+    const raw: unknown = JSON.parse(localStorage.getItem('newnewz.quietCats') ?? '{}')
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, Quiet>) : {}
   } catch { return {} }
 }
 export const saveQuiet = (q: Record<string, Quiet>) => {
-  try { localStorage.setItem('newzlocal.quietCats', JSON.stringify(q)) } catch { /* private mode */ }
+  try { localStorage.setItem('newnewz.quietCats', JSON.stringify(q)) } catch { /* private mode */ }
 }
 export const inQuiet = (q: Quiet | undefined, now = new Date()) => {
   if (!q?.on) return false
@@ -1999,11 +1999,11 @@ export const inQuiet = (q: Quiet | undefined, now = new Date()) => {
 }
 
 export const saveLast = (key: string, list: Article[]) => {
-  try { localStorage.setItem(`newzlocal.last.${key}`, JSON.stringify(list.slice(0, 60))) } catch { /* full or private mode */ }
+  try { localStorage.setItem(`newnewz.last.${key}`, JSON.stringify(list.slice(0, 60))) } catch { /* full or private mode */ }
 }
 export const loadLast = (key: string): Article[] | null => {
   try {
-    const raw = JSON.parse(localStorage.getItem(`newzlocal.last.${key}`) ?? 'null') as (Omit<Article, 'date'> & { date: string; also?: (Omit<RelatedItem, 'date'> & { date: string })[] })[] | null
+    const raw = JSON.parse(localStorage.getItem(`newnewz.last.${key}`) ?? 'null') as (Omit<Article, 'date'> & { date: string; also?: (Omit<RelatedItem, 'date'> & { date: string })[] })[] | null
     return raw
       ? raw.map((a) => ({
           ...a,
@@ -2014,7 +2014,7 @@ export const loadLast = (key: string): Article[] | null => {
   } catch { return null }
 }
 
-const CATS = 'newzlocal.cats'
+const CATS = 'newnewz.cats'
 export const loadCats = (): string[] => loadList<string>(CATS, isText)
 export const saveCats = (c: string[]) => {
   try { localStorage.setItem(CATS, JSON.stringify(c)) } catch { /* private mode */ }

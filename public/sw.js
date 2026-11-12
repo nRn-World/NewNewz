@@ -1,5 +1,5 @@
 // Service worker: offline app shell + Web Push background notifications for saved addresses, cities & countries.
-const CACHE = 'newzlocal-v4'
+const CACHE = 'newnewz-v4'
 const PRECACHE = ['./', 'manifest.webmanifest', 'favicon.svg', 'icons/icon-192.png']
 
 self.addEventListener('install', (e) => {
@@ -59,7 +59,7 @@ self.addEventListener('fetch', (e) => {
 
 // Background Web Push notifications (dispatched by the Cloudflare Worker Cron trigger)
 self.addEventListener('push', (e) => {
-  let data = { title: 'NewzLocal', body: '', url: './', tag: 'newzlocal' }
+  let data = { title: 'NewNewz', body: '', url: './', tag: 'newnewz' }
   try {
     if (e.data) data = { ...data, ...e.data.json() }
   } catch {

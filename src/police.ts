@@ -550,7 +550,7 @@ type PolisenApiEvent = {
   location?: { name?: string; gps?: string }
 }
 
-/** Converts Swedish Police Open Data `/api/events` JSON into NewzLocal `Article` items. */
+/** Converts Swedish Police Open Data `/api/events` JSON into NewNewz `Article` items. */
 export function parsePolisenEventsJson(rawJson: string, lang = 'sv'): Article[] {
   const parsed = JSON.parse(rawJson) as unknown
   if (!Array.isArray(parsed)) throw new Error('err.source')

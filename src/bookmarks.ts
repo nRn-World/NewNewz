@@ -10,7 +10,7 @@ export type SavedArticle = {
   savedAt: number
 }
 
-const KEY = 'newzlocal.saved'
+const KEY = 'newnewz.saved'
 
 export function loadSaved(): SavedArticle[] {
   try {

@@ -1,3 +1,4 @@
+import './migrateStorage' // must run before any module reads localStorage
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource/alfa-slab-one/400.css'

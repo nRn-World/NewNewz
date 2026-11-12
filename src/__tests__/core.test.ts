@@ -490,7 +490,7 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     expect(parsedJson[0].source).toBe('Nyhetsbyrån Järva')
 
     const preflight = await worker.fetch(
-      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/bn?q=Husby', {
+      new Request('https://newnewz-proxy.bynrnworld.workers.dev/bn?q=Husby', {
         method: 'OPTIONS',
         headers: { Origin: 'https://5173-sandbox.e2b.app' },
       }),
@@ -500,7 +500,7 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe('https://5173-sandbox.e2b.app')
 
     const keyedBlocked = await worker.fetch(
-      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/gnews/search?q=Husby', {
+      new Request('https://newnewz-proxy.bynrnworld.workers.dev/gnews/search?q=Husby', {
         headers: { Origin: 'https://evil.example.com' },
       }),
       { GNEWS_KEY: 'secret' },
@@ -631,25 +631,25 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     expect(isOfficialPoliceUrl('https://www.presseportal.de/wirtschaft/12345')).toBe(false)
 
     const ssrfBlocked = await worker.fetch(
-      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/police-feed?url=https%3A%2F%2Fevil.example.com%2Ffeed'),
+      new Request('https://newnewz-proxy.bynrnworld.workers.dev/police-feed?url=https%3A%2F%2Fevil.example.com%2Ffeed'),
       {},
     )
     expect(ssrfBlocked.status).toBe(403)
     const httpBlocked = await worker.fetch(
-      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/police-feed?url=http%3A%2F%2Fpolisen.se%2Fapi%2Fevents'),
+      new Request('https://newnewz-proxy.bynrnworld.workers.dev/police-feed?url=http%3A%2F%2Fpolisen.se%2Fapi%2Fevents'),
       {},
     )
     expect(httpBlocked.status).toBe(403)
   })
 
   it('wires native Android APK JavaScript bridge and Worker /push/poll endpoint for favourite alerts', async () => {
-    expect(apkDownloadUrl()).toMatch(/\/NewzLocal\.apk$/)
+    expect(apkDownloadUrl()).toMatch(/\/NewNewz\.apk$/)
 
     let syncedJson = ''
     let notifiedArgs: string[] = []
     const g = globalThis as unknown as {
       window?: {
-        NewzLocalAndroid?: {
+        NewNewzAndroid?: {
           isAndroidApk: () => boolean
           syncFavorites: (p: string) => void
           notifyNow: (t: string, b: string, u: string, tag: string) => boolean
@@ -658,7 +658,7 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     }
     const prevWin = g.window
     g.window = {
-      NewzLocalAndroid: {
+      NewNewzAndroid: {
         isAndroidApk: () => true,
         syncFavorites: (p: string) => { syncedJson = p },
         notifyNow: (t: string, b: string, u: string, tag: string) => {
@@ -677,7 +677,7 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
           { level: 'city', name: 'Stockholm' },
         ],
       }
-      expect(syncNativeAndroidFavorites([fav], 'sv', {}, 'https://newzlocal-proxy.bynrnworld.workers.dev')).toBe(true)
+      expect(syncNativeAndroidFavorites([fav], 'sv', {}, 'https://newnewz-proxy.bynrnworld.workers.dev')).toBe(true)
       const parsed = JSON.parse(syncedJson) as { lang: string; places: { label: string; hash: string }[] }
       expect(parsed.lang).toBe('sv')
       expect(parsed.places[0].label).toContain('Husby')
@@ -685,13 +685,13 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
 
       expect(notifyViaNativeAndroid('📰 Husby', 'Ny händelse i Husby', './#p=abc', 'husby')).toBe(true)
       expect(notifiedArgs[0]).toBe('📰 Husby')
-      expect(notifiedArgs[2]).toBe('https://nrnworld.one/NewzLocal/#p=abc')
+      expect(notifiedArgs[2]).toBe('https://nrnworld.one/NewNewz/#p=abc')
     } finally {
       g.window = prevWin
     }
 
     const pollEmpty = await worker.fetch(
-      new Request('https://newzlocal-proxy.bynrnworld.workers.dev/push/poll', {
+      new Request('https://newnewz-proxy.bynrnworld.workers.dev/push/poll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ places: [] }),
@@ -791,7 +791,7 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     const mockWin: Record<string, unknown> = {
       clearTimeout: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
       setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      NewzLocalAndroid: {
+      NewNewzAndroid: {
         isAndroidApk: () => true,
         syncFavorites: (p: string) => {
           syncedPayload = p
@@ -811,7 +811,7 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
         cc: 'SE',
         parts: [{ level: 'district', name: `Area${i}` }],
       }))
-      expect(syncNativeAndroidFavorites(manyFavs, 'sv', {}, 'https://newzlocal-proxy.bynrnworld.workers.dev')).toBe(true)
+      expect(syncNativeAndroidFavorites(manyFavs, 'sv', {}, 'https://newnewz-proxy.bynrnworld.workers.dev')).toBe(true)
       expect((JSON.parse(syncedPayload) as { places: unknown[] }).places).toHaveLength(38)
       expect(await nativeAndroidFetchText('https://www.bing.com/news/search?q=Husby')).toBe('<rss>https://www.bing.com/news/search?q=Husby</rss>')
       // Non-HTTPS URLs are rejected cleanly by nativeAndroidFetchText

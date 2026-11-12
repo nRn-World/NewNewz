@@ -409,7 +409,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
       const events = sharedPolisenPromise
         ? await sharedPolisenPromise()
         : await fetch('https://polisen.se/api/events', {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPush/1.0)' },
             cf: { cacheTtl: 180, cacheEverything: true },
             signal: AbortSignal.timeout(5500),
           }).then((pr) => (pr.ok ? pr.json() : []))
@@ -434,7 +434,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
   if (cc === 'TH' && (mustKey === 'phuket' || (place.lat >= 7.7 && place.lat <= 8.22 && place.lon >= 98.2 && place.lon <= 98.48))) {
     try {
       const tr = await fetch('https://phuket.tourist.police.go.th/feed/', {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPush/1.0)' },
         cf: { cacheTtl: 240, cacheEverything: true },
         signal: AbortSignal.timeout(5500),
       })
@@ -457,7 +457,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
   for (const q of queries.slice(0, 2)) {
     try {
       const r = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent(q)}&format=rss&cc=${cc}&sortbydate=1`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPush/1.0)' },
         cf: { cacheTtl: 240, cacheEverything: true },
         signal: AbortSignal.timeout(6000),
       })
@@ -490,7 +490,7 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
   // 1. Reddit newest threads (edge-cached 240s)
   try {
     const r = await fetch(`https://www.reddit.com/search.json?raw_json=1&sort=new&limit=15&q=${encodeURIComponent(q)}`, {
-      headers: { 'User-Agent': 'NewzLocalAlert/1.0' },
+      headers: { 'User-Agent': 'NewNewzAlert/1.0' },
       cf: { cacheTtl: 240, cacheEverything: true },
       signal: AbortSignal.timeout(5500),
     })
@@ -552,7 +552,7 @@ function createSharedPolisenLoader() {
   return () => {
     if (!memo) {
       memo = fetch('https://polisen.se/api/events', {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPush/1.0)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPush/1.0)' },
         cf: { cacheTtl: 180, cacheEverything: true },
         signal: AbortSignal.timeout(5500),
       })
@@ -656,9 +656,9 @@ export default {
         const pushRes = await deliverPush(
           sub,
           {
-            title: String(body.title || 'NewzLocal').slice(0, 120),
+            title: String(body.title || 'NewNewz').slice(0, 120),
             body: String(body.body || 'Push notifications are active!').slice(0, 300),
-            tag: 'newzlocal-test',
+            tag: 'newnewz-test',
             url: './',
           },
           vapid,
@@ -750,7 +750,7 @@ export default {
       if (blockedHost) return new Response('Forbidden host', { status: 403, headers: cors })
       try {
         const r = await fetch(parsed, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalReader/1.0)' },
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzReader/1.0)' },
           cf: { cacheTtl: 1800, cacheEverything: true },
           signal: AbortSignal.timeout(5000),
         })
@@ -817,7 +817,7 @@ export default {
       try {
         const r = await fetch(parsed, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; NewzLocalPoliceReader/1.0; +https://nrnworld.one/NewzLocal/)',
+            'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPoliceReader/1.0; +https://nrnworld.one/NewNewz/)',
             Accept: 'application/json, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
           },
           cf: { cacheTtl: 120, cacheEverything: true },

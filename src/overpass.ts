@@ -12,7 +12,7 @@ const ENDPOINTS = [
 
 let preferredMirror = 0
 const memCache = new Map<string, { elements: unknown[] }>()
-const DB_NAME = 'newzlocal-geo'
+const DB_NAME = 'newnewz-geo'
 const STORE = 'overpass'
 const TTL_MS = 7 * 24 * 3600 * 1000 // 7 days
 

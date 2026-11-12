@@ -34,7 +34,7 @@ const Globe = () => (
 
 /** Zeppelin and clouds above an arched masthead. */
 const Masthead = () => (
-  <svg viewBox="0 0 620 120" className="masthead-art" aria-label="NewzLocal">
+  <svg viewBox="0 0 620 120" className="masthead-art" aria-label="NewNewz">
     <defs><path id="arc" d="M24 104 Q310 -6 596 104" /></defs>
     <g stroke="#1b140d" fill="none" strokeWidth="1.2">
       <ellipse cx="310" cy="18" rx="86" ry="11" fill="#e2d2ac" />
@@ -43,7 +43,7 @@ const Masthead = () => (
       <path d="M226 17l-14-7v14zM394 17l14-7v14z" fill="#e2d2ac" />
       <path d="M118 52q20-22 46-14q16-14 36 0q22-8 32 14M420 52q20-22 46-14q16-14 36 0q22-8 32 14" strokeWidth="1" />
     </g>
-    <text className="arc-text"><textPath href="#arc" startOffset="50%" textAnchor="middle">NEWZLOCAL</textPath></text>
+    <text className="arc-text"><textPath href="#arc" startOffset="50%" textAnchor="middle">NEWNEWZ</textPath></text>
   </svg>
 )
 
@@ -111,7 +111,7 @@ export default function Paper({ articles, place, date, pageWord, tabName, clipLa
     )
 
   return (
-    <div className="paper" role="dialog" aria-modal="true" aria-label={`NewzLocal – ${place}`} onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="paper" role="dialog" aria-modal="true" aria-label={`NewNewz – ${place}`} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <button ref={closeRef} className="paper-x" onClick={onClose} aria-label={closeLabel}>×</button>
       <button className="paper-nav prev" onClick={() => go(page + (isRtl ? 1 : -1))} disabled={isRtl ? page === pages.length - 1 : page === 0} aria-label="‹">‹</button>
       <button className="paper-nav next" onClick={() => go(page + (isRtl ? -1 : 1))} disabled={isRtl ? page === 0 : page === pages.length - 1} aria-label="›">›</button>
@@ -138,7 +138,7 @@ export default function Paper({ articles, place, date, pageWord, tabName, clipLa
             <header className="front-head">
               <div className="corner left"><b>{tabName}</b><i>★</i><span>LIVE</span></div>
               <div className="center">
-                <button type="button" className="masthead-home" onClick={() => (onHome ?? onClose)()} aria-label="NewzLocal">
+                <button type="button" className="masthead-home" onClick={() => (onHome ?? onClose)()} aria-label="NewNewz">
                   <Masthead />
                 </button>
                 <div className="ribbon"><span>{place}</span></div>
@@ -157,7 +157,7 @@ export default function Paper({ articles, place, date, pageWord, tabName, clipLa
         ) : (
           <>
             <header className="slim">
-              <button type="button" className="slim-home" onClick={() => (onHome ?? onClose)()}>NEWZLOCAL</button>
+              <button type="button" className="slim-home" onClick={() => (onHome ?? onClose)()}>NEWNEWZ</button>
               <span>{place}</span>
               <span>{pageWord} {page + 1}</span>
             </header>

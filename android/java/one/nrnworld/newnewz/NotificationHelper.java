@@ -1,4 +1,4 @@
-package one.nrnworld.newzlocal;
+package one.nrnworld.newnewz;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -12,7 +12,7 @@ import android.graphics.BitmapFactory;
 import android.os.Build;
 
 public final class NotificationHelper {
-    public static final String CHANNEL_ID = "newzlocal_alerts";
+    public static final String CHANNEL_ID = "newnewz_alerts";
     public static final String POST_NOTIFICATIONS_PERM = "android.permission.POST_NOTIFICATIONS";
 
     private NotificationHelper() {}
@@ -23,7 +23,7 @@ public final class NotificationHelper {
         if (nm == null) return;
         NotificationChannel ch = new NotificationChannel(
                 CHANNEL_ID,
-                "NewzLocal Nyhetslarm",
+                "NewNewz Nyhetslarm",
                 NotificationManager.IMPORTANCE_HIGH
         );
         ch.setDescription("Notiser vid nya lokala nyheter, polishändelser och foruminlägg i dina favoriter");

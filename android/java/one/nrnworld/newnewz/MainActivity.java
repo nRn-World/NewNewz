@@ -1,4 +1,4 @@
-package one.nrnworld.newzlocal;
+package one.nrnworld.newnewz;
 
 import android.app.Activity;
 import android.content.Context;
@@ -12,6 +12,10 @@ import android.os.Bundle;
 import android.os.Message;
 import android.provider.Settings;
 import android.view.KeyEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.widget.FrameLayout;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
@@ -32,7 +36,7 @@ import java.nio.charset.StandardCharsets;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String HOME_URL = "https://nrnworld.one/NewzLocal/";
+    private static final String HOME_URL = "https://nrnworld.one/NewNewz/";
     private static final int REQ_NOTIFICATIONS = 1001;
     private static final int REQ_LOCATION = 1002;
     private static final String PREF_ASKED_NOTIF = "asked_notif_once";
@@ -58,7 +62,19 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         webView.setBackgroundColor(Color.parseColor("#14110C"));
         configureWebView(webView);
-        setContentView(webView);
+        // Android 15+ draws apps edge to edge; keep the page out from under the status and navigation bars
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.parseColor("#14110C"));
+        root.addView(webView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
+                v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                        insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+                return insets;
+            }
+        });
+        setContentView(root);
 
         String startUrl = resolveIntentUrl(getIntent());
         webView.loadUrl(startUrl != null ? startUrl : HOME_URL);
@@ -104,7 +120,7 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * The only pages this activity will ever load: https://nrnworld.one/NewzLocal... The activity is exported, so any
+     * The only pages this activity will ever load: https://nrnworld.one/NewNewz... The activity is exported, so any
      * app on the phone can send it an intent; without the scheme check a "javascript://nrnworld.one/..." link would
      * run that app's script inside our page, with access to the native bridge.
      */
@@ -115,7 +131,7 @@ public class MainActivity extends Activity {
                 && "nrnworld.one".equalsIgnoreCase(uri.getHost())
                 && uri.getUserInfo() == null
                 && path != null
-                && (path.equals("/NewzLocal") || path.startsWith("/NewzLocal/"));
+                && (path.equals("/NewNewz") || path.startsWith("/NewNewz/"));
     }
 
     private String resolveIntentUrl(Intent intent) {
@@ -149,9 +165,9 @@ public class MainActivity extends Activity {
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
-        s.setUserAgentString(s.getUserAgentString() + " NewzLocalAndroidAPK/1.2");
+        s.setUserAgentString(s.getUserAgentString() + " NewNewzAndroidAPK/1.2");
 
-        wv.addJavascriptInterface(new AndroidBridge(), "NewzLocalAndroid");
+        wv.addJavascriptInterface(new AndroidBridge(), "NewNewzAndroid");
 
         wv.setWebViewClient(new WebViewClient() {
             @Override
@@ -354,10 +370,10 @@ public class MainActivity extends Activity {
             }
             NotificationHelper.show(
                     appCtx,
-                    title != null ? title : "NewzLocal",
+                    title != null ? title : "NewNewz",
                     body != null ? body : "",
                     deepUrl != null ? deepUrl : HOME_URL,
-                    tag != null ? tag : "newzlocal"
+                    tag != null ? tag : "newnewz"
             );
             return true;
         }
