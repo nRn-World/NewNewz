@@ -37,7 +37,7 @@ export default async function handler(req, res) {
       signal: AbortSignal.timeout(10_000),
     })
     const body = await r.text()
-    res.setHeader('Cache-Control', r.ok ? 'public, s-maxage=60, stale-while-revalidate=120' : 'no-store')
+    res.setHeader('Cache-Control', r.ok ? 'public, s-maxage=30' : 'no-store')
     res.status(r.status).setHeader('Content-Type', 'application/xml; charset=utf-8').send(body)
   } catch {
     res.status(502).setHeader('Content-Type', 'application/xml; charset=utf-8').send('<rss version="2.0"><channel /></rss>')

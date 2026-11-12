@@ -889,6 +889,7 @@ export default {
     if (req.method !== 'GET' || !prefix) return new Response('Not found', { status: 404, headers: cors })
     try {
       const isRss = prefix === '/gn' || prefix === '/bn'
+      const ttl = isRss ? 45 : 180 // news is what has to be fresh; forums keep 180 s to stay polite to their servers
       const edgeCache = typeof caches !== 'undefined' ? caches.default : null
       const cacheKey = edgeCache ? new Request(`${url.origin}${url.pathname}${url.search}`, { method: 'GET' }) : null
       if (edgeCache && cacheKey) {
@@ -899,7 +900,7 @@ export default {
             headers: {
               ...cors,
               'Content-Type': hit.headers.get('Content-Type') ?? (isRss ? 'application/xml; charset=utf-8' : 'text/plain'),
-              'Cache-Control': 'public, max-age=180',
+              'Cache-Control': `public, max-age=${ttl}`,
             },
           })
         }
@@ -915,7 +916,7 @@ export default {
       }
       const r = await fetch(ORIGINS[prefix] + url.pathname.slice(prefix.length) + url.search, {
         headers: upstreamHeaders,
-        cf: { cacheTtl: 180, cacheEverything: true },
+        cf: { cacheTtl: ttl, cacheEverything: true },
         signal: AbortSignal.timeout(10_000),
       })
       if (isRss) {
@@ -929,19 +930,19 @@ export default {
               cacheKey,
               new Response(txt, {
                 status: 200,
-                headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=180' },
+                headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': `public, max-age=${ttl}` },
               }),
             )
             .catch(() => {})
         }
         return new Response(txt, {
           status: 200,
-          headers: { ...cors, 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=180' },
+          headers: { ...cors, 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': `public, max-age=${ttl}` },
         })
       }
       return new Response(r.body, {
         status: r.status,
-        headers: { ...cors, 'Content-Type': r.headers.get('Content-Type') ?? 'text/plain', 'Cache-Control': 'public, max-age=180' },
+        headers: { ...cors, 'Content-Type': r.headers.get('Content-Type') ?? 'text/plain', 'Cache-Control': `public, max-age=${ttl}` },
       })
     } catch {
       return new Response('Upstream error', { status: 502, headers: cors })

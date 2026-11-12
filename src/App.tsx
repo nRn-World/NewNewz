@@ -438,10 +438,10 @@ export default function App() {
     updateHeat(res?.articles, tab === 'news', streetList)
   }, [res, tab, streetList, updateHeat])
 
-  // Poll every minute while visible
+  // Poll twice a minute while visible
   useEffect(() => {
     const bump = () => document.visibilityState === 'visible' && setTick((n) => n + 1)
-    const id = setInterval(bump, 60_000)
+    const id = setInterval(bump, 30_000)
     document.addEventListener('visibilitychange', bump)
     return () => {
       clearInterval(id)
