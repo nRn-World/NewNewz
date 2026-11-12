@@ -672,7 +672,8 @@ const headlineMemo = new Map<string, { at: number; rows: Article[] }>()
 async function headlines(query: string, country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
   const mk = `${country}|${when}|${query}`
   const hit = headlineMemo.get(mk)
-  if (hit && Date.now() - hit.at < 150_000) return hit.rows
+  // the last-hour window is what makes the list fresh, so it is re-asked far more often than the wider windows
+  if (hit && Date.now() - hit.at < (when === '1h' ? 20_000 : 150_000)) return hit.rows
 
   const settled = await Promise.allSettled([
     bingHeadlines(query, country, when, signal),
