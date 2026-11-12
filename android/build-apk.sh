@@ -50,7 +50,7 @@ cp "$ROOT_DIR/public/icons/icon-512.png" "$WORK/res/mipmap-xxxhdpi/ic_launcher.p
   --manifest "$ANDROID_DIR/AndroidManifest.xml" \
   --java "$WORK/gen" \
   --min-sdk-version 24 \
-  --target-sdk-version 34 \
+  --target-sdk-version 36 \
   --auto-add-overlay \
   -o "$WORK/unaligned.apk" \
   "$WORK/compiled_res/resources.zip"
@@ -87,7 +87,7 @@ else
     -keyalg RSA \
     -keysize 2048 \
     -validity 10950 \
-    -dname "CN=NewzLocal, O=nRn World, C=SE" >/dev/null 2>&1
+    -dname "CN=NewNewz, O=nRn World, C=SE" >/dev/null 2>&1
 fi
 
 # 6. Sign with v1 + v2 + v3 schemes & verify
@@ -100,10 +100,10 @@ fi
   --v1-signing-enabled true \
   --v2-signing-enabled true \
   --v3-signing-enabled true \
-  --out "$OUT_DIR/NewzLocal.apk" \
+  --out "$OUT_DIR/NewNewz.apk" \
   "$WORK/aligned.apk"
 
-"$APKSIGNER" verify --verbose "$OUT_DIR/NewzLocal.apk"
+"$APKSIGNER" verify --verbose "$OUT_DIR/NewNewz.apk"
 
 # 7. Emit Digital Asset Links (.well-known/assetlinks.json) matching the exact APK certificate SHA-256
 SHA256_FP="$(keytool -list -v -keystore "$KEYSTORE" -storetype PKCS12 -storepass "$KS_PASS" -alias "$KS_ALIAS" | awk '/SHA256:/{print $2; exit}')"
@@ -115,7 +115,7 @@ if [ -n "$SHA256_FP" ]; then
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "one.nrnworld.newzlocal",
+      "package_name": "one.nrnworld.newnewz",
       "sha256_cert_fingerprints": ["$SHA256_FP"]
     }
   }
@@ -125,4 +125,4 @@ EOF
 fi
 
 rm -rf "$WORK"
-ls -lh "$OUT_DIR/NewzLocal.apk"
+ls -lh "$OUT_DIR/NewNewz.apk"

@@ -86,7 +86,7 @@ export async function exportClipCard(item: ClipInput): Promise<void> {
   ctx.fillStyle = '#14100b'
   ctx.textAlign = 'center'
   ctx.font = '900 66px "Alfa Slab One", "Playfair Display", Georgia, serif'
-  ctx.fillText('NewzLocal', x0 + cw / 2, y0 + 112)
+  ctx.fillText('NewNewz', x0 + cw / 2, y0 + 112)
 
   // Double rule under masthead
   ctx.lineWidth = 3
@@ -148,12 +148,12 @@ export async function exportClipCard(item: ClipInput): Promise<void> {
   ctx.fillStyle = '#6b5f4d'
   ctx.textAlign = 'right'
   ctx.font = '400 22px "Courier Prime", monospace'
-  ctx.fillText('NEWZLOCAL DISPATCH', padX + innerW, footY)
+  ctx.fillText('NEWNEWZ DISPATCH', padX + innerW, footY)
 
   const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
   if (!blob) return
   const slug = item.place.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'story'
-  const fileName = `newzlocal-${slug}.png`
+  const fileName = `newnewz-${slug}.png`
   const file = new File([blob], fileName, { type: 'image/png' })
 
   if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {

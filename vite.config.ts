@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/NewzLocal/' : '/', // served from nrnworld.one/NewzLocal/
+  base: command === 'build' ? '/NewNewz/' : '/', // served from nrnworld.one/NewNewz/
   plugins: [react()],
   server: {
     host: '0.0.0.0',
@@ -12,13 +12,13 @@ export default defineConfig(({ command }) => ({
       '/fb': {
         target: 'https://www.flashback.org',
         changeOrigin: true,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewzLocal/0.1)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewz/0.1)' },
         rewrite: (p) => p.replace(/^\/fb/, ''),
       },
       '/rd': {
         target: 'https://www.reddit.com',
         changeOrigin: true,
-        headers: { 'User-Agent': 'NewzLocal/0.1' },
+        headers: { 'User-Agent': 'NewNewz/0.1' },
         rewrite: (p) => p.replace(/^\/rd/, ''),
       },
       '/gn': {

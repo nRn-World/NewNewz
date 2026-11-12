@@ -1,4 +1,4 @@
-package one.nrnworld.newzlocal;
+package one.nrnworld.newnewz;
 
 import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
@@ -32,12 +32,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class FavoriteChecker {
-    public static final String PREFS = "newzlocal_prefs";
+    public static final String PREFS = "newnewz_prefs";
     public static final String KEY_PAYLOAD = "synced_payload";
     private static final String KEY_SEEN_MAP = "seen_map_json";
     private static final String KEY_SEEDED = "seeded_labels_json";
-    private static final String DEFAULT_WORKER = "https://newzlocal-proxy.bynrnworld.workers.dev";
-    private static final String APP_BASE = "https://nrnworld.one/NewzLocal/";
+    private static final String DEFAULT_WORKER = "https://newnewz-proxy.bynrnworld.workers.dev";
+    private static final String APP_BASE = "https://nrnworld.one/NewNewz/";
     public static final int JOB_ID = 4201;
     private static final int MAX_FAVS = 40;
 
@@ -308,7 +308,7 @@ public final class FavoriteChecker {
                         if ("SE".equals(cc)) {
                             if (!triedPolisen) {
                                 triedPolisen = true;
-                                String pJson = httpGetString("https://polisen.se/api/events", StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewzLocalAPK/1.3)");
+                                String pJson = httpGetString("https://polisen.se/api/events", StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewNewzAPK/1.3)");
                                 if (pJson != null) {
                                     networkOk++;
                                     try { cachedPolisen = new JSONArray(pJson); } catch (Exception ignored) {}
@@ -341,7 +341,7 @@ public final class FavoriteChecker {
                         if ("TH".equals(cc) && "phuket".equals(mustKey)) {
                             if (!triedPhuket) {
                                 triedPhuket = true;
-                                cachedPhuketXml = httpGetString("https://phuket.tourist.police.go.th/feed/", StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewzLocalAPK/1.3)");
+                                cachedPhuketXml = httpGetString("https://phuket.tourist.police.go.th/feed/", StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewNewzAPK/1.3)");
                                 if (cachedPhuketXml != null) networkOk++;
                             }
                             if (cachedPhuketXml != null) {
@@ -365,7 +365,7 @@ public final class FavoriteChecker {
                         }
 
                         String bingUrl = "https://www.bing.com/news/search?q=" + URLEncoder.encode(newsQ, "UTF-8") + "&format=rss&cc=" + cc + "&sortbydate=1";
-                        String bingXml = httpGetString(bingUrl, StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewzLocalAPK/1.3)");
+                        String bingXml = httpGetString(bingUrl, StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewNewzAPK/1.3)");
                         if (bingXml != null) {
                             networkOk++;
                             Matcher im = ITEM_RE.matcher(bingXml);
@@ -389,7 +389,7 @@ public final class FavoriteChecker {
 
                     if (wantForum && !forumQ.isEmpty()) {
                         String rdUrl = "https://www.reddit.com/search.json?raw_json=1&sort=new&limit=12&q=" + URLEncoder.encode(forumQ, "UTF-8");
-                        String rdJson = httpGetString(rdUrl, StandardCharsets.UTF_8, "NewzLocalAndroidAPK/1.3");
+                        String rdJson = httpGetString(rdUrl, StandardCharsets.UTF_8, "NewNewzAndroidAPK/1.3");
                         if (rdJson != null) {
                             networkOk++;
                             try {
@@ -469,7 +469,7 @@ public final class FavoriteChecker {
             conn.setReadTimeout(12000);
             conn.setDoOutput(true);
             conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            conn.setRequestProperty("User-Agent", "NewzLocalAndroidAPK/1.3");
+            conn.setRequestProperty("User-Agent", "NewNewzAndroidAPK/1.3");
 
             byte[] outBytes = reqBody.toString().getBytes(StandardCharsets.UTF_8);
             OutputStream os = conn.getOutputStream();

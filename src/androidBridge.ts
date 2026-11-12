@@ -20,22 +20,22 @@ interface NativeAndroidBridge {
 
 declare global {
   interface Window {
-    NewzLocalAndroid?: NativeAndroidBridge
+    NewNewzAndroid?: NativeAndroidBridge
     __deferredInstallPrompt?: BeforeInstallPromptEvent | null
     __onAndroidNotifPerm?: (perm: string) => void
     __onAndroidFetch?: (reqId: string, ok: boolean, body: string) => void
   }
 }
 
-const DISMISS_KEY = 'newzlocal.installDismissedAt'
+const DISMISS_KEY = 'newnewz.installDismissedAt'
 const DISMISS_TTL_MS = 24 * 3600 * 1000
 
 export function isNativeAndroidApp(): boolean {
   if (typeof window === 'undefined') return false
   try {
-    if (window.NewzLocalAndroid?.isAndroidApk?.()) return true
+    if (window.NewNewzAndroid?.isAndroidApk?.()) return true
   } catch { /* ignore */ }
-  return typeof navigator !== 'undefined' && /NewzLocalAndroidAPK/i.test(navigator.userAgent)
+  return typeof navigator !== 'undefined' && /NewNewzAndroidAPK/i.test(navigator.userAgent)
 }
 
 export function isStandaloneApp(): boolean {
@@ -61,9 +61,9 @@ export function canUseNotifications(): boolean {
 
 export function getNotificationPerm(): string {
   if (typeof window === 'undefined') return 'unsupported'
-  if (window.NewzLocalAndroid?.getNotificationPermission) {
+  if (window.NewNewzAndroid?.getNotificationPermission) {
     try {
-      return window.NewzLocalAndroid.getNotificationPermission()
+      return window.NewNewzAndroid.getNotificationPermission()
     } catch { /* fallback */ }
   }
   return 'Notification' in window ? Notification.permission : 'unsupported'
@@ -71,7 +71,7 @@ export function getNotificationPerm(): string {
 
 export async function requestAppNotificationPermission(): Promise<string> {
   if (typeof window === 'undefined') return 'unsupported'
-  if (window.NewzLocalAndroid?.requestNotificationPermission) {
+  if (window.NewNewzAndroid?.requestNotificationPermission) {
     return new Promise((resolve) => {
       const prev = window.__onAndroidNotifPerm
       let settled = false
@@ -86,7 +86,7 @@ export async function requestAppNotificationPermission(): Promise<string> {
         finish(state)
       }
       try {
-        window.NewzLocalAndroid?.requestNotificationPermission?.()
+        window.NewNewzAndroid?.requestNotificationPermission?.()
       } catch {
         finish(getNotificationPerm())
       }
@@ -103,13 +103,13 @@ export async function requestAppNotificationPermission(): Promise<string> {
   return 'unsupported'
 }
 
-export function notifyViaNativeAndroid(title: string, body: string, deepUrl = './', tag = 'newzlocal'): boolean {
-  if (typeof window === 'undefined' || !window.NewzLocalAndroid?.notifyNow) return false
+export function notifyViaNativeAndroid(title: string, body: string, deepUrl = './', tag = 'newnewz'): boolean {
+  if (typeof window === 'undefined' || !window.NewNewzAndroid?.notifyNow) return false
   try {
     const resolvedUrl = deepUrl.startsWith('http')
       ? deepUrl
-      : new URL(deepUrl, 'https://nrnworld.one/NewzLocal/').href
-    return window.NewzLocalAndroid.notifyNow(title, body, resolvedUrl, tag)
+      : new URL(deepUrl, 'https://nrnworld.one/NewNewz/').href
+    return window.NewNewzAndroid.notifyNow(title, body, resolvedUrl, tag)
   } catch {
     return false
   }
@@ -121,7 +121,7 @@ export function syncNativeAndroidFavorites(
   quiet: Record<string, Quiet>,
   workerUrl: string,
 ): boolean {
-  if (typeof window === 'undefined' || !window.NewzLocalAndroid?.syncFavorites) return false
+  if (typeof window === 'undefined' || !window.NewNewzAndroid?.syncFavorites) return false
   try {
     const payload = JSON.stringify({
       lang,
@@ -140,7 +140,7 @@ export function syncNativeAndroidFavorites(
         alertForum: f.alertForum !== false,
       })),
     })
-    window.NewzLocalAndroid.syncFavorites(payload)
+    window.NewNewzAndroid.syncFavorites(payload)
     return true
   } catch {
     return false
@@ -162,14 +162,14 @@ function ensureAndroidFetchCallback(): void {
 }
 
 /**
- * Performs a direct CORS-free HTTPS GET from the user's Android device when running inside `NewzLocal.apk`,
+ * Performs a direct CORS-free HTTPS GET from the user's Android device when running inside `NewNewz.apk`,
  * consuming 0 Cloudflare Worker requests. Returns `null` when not running in the Android APK or on failure.
  */
 export function nativeAndroidFetchText(
   targetUrl: string,
   opts?: { cookie?: string; encoding?: 'utf-8' | 'iso-8859-1'; signal?: AbortSignal },
 ): Promise<string | null> {
-  if (typeof window === 'undefined' || !window.NewzLocalAndroid?.fetchAsync || !targetUrl.startsWith('https://')) {
+  if (typeof window === 'undefined' || !window.NewNewzAndroid?.fetchAsync || !targetUrl.startsWith('https://')) {
     return Promise.resolve(null)
   }
   ensureAndroidFetchCallback()
@@ -203,7 +203,7 @@ export function nativeAndroidFetchText(
     })
 
     try {
-      window.NewzLocalAndroid?.fetchAsync?.(reqId, targetUrl, opts?.cookie ?? '', opts?.encoding ?? 'utf-8')
+      window.NewNewzAndroid?.fetchAsync?.(reqId, targetUrl, opts?.cookie ?? '', opts?.encoding ?? 'utf-8')
     } catch {
       pendingFetches.delete(reqId)
       clearTimeout(timer)
@@ -230,5 +230,5 @@ export function markInstallPromptDismissed(): void {
 
 export function apkDownloadUrl(): string {
   const base = import.meta.env.BASE_URL || '/'
-  return `${base.endsWith('/') ? base : `${base}/`}NewzLocal.apk`
+  return `${base.endsWith('/') ? base : `${base}/`}NewNewz.apk`
 }

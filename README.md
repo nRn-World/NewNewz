@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌍 NewzLocal
+# 🌍 NewNewz
 
 ### Spin the globe. Enter any street or city. Read what is happening there, right now.
 
@@ -13,7 +13,7 @@
 ![PWA](https://img.shields.io/badge/PWA-Installable-5a0fc8)
 ![Languages](https://img.shields.io/badge/Languages-7-brightgreen)
 
-<img src="docs/globe.png" alt="NewzLocal — interactive 3D globe with a classic broadsheet side panel" width="900">
+<img src="docs/globe.png" alt="NewNewz — interactive 3D globe with a classic broadsheet side panel" width="900">
 
 </div>
 
@@ -21,7 +21,7 @@
 
 ## ✨ Overview
 
-**NewzLocal** is an installable **Progressive Web App (PWA)** built around a real-time **3D interactive globe** and a classic **broadsheet newspaper** reading experience.
+**NewNewz** is an installable **Progressive Web App (PWA)** built around a real-time **3D interactive globe** and a classic **broadsheet newspaper** reading experience.
 
 Zoom seamlessly from the entire planet down to **country → province/state → city → district/neighbourhood → exact home street address**, and read the latest local press coverage and community forum discussions about *that exact place*. Save your home address or favourite neighbourhoods to receive **mobile push notifications** whenever breaking news or important forum threads appear.
 
@@ -48,8 +48,8 @@ Zoom seamlessly from the entire planet down to **country → province/state → 
 | 🏠 **Exact Home-Address & Venue Watch** | Search and monitor full street addresses (including house numbers and postal codes), venues, neighbourhoods, islands, cities, or entire countries. |
 | 📰 **Strict Place Matching (Up to 100 Latest)** | Fetches up to **100 news headlines and 100 forum discussions** strictly mentioning the exact selected place—never diluted with unrelated parent-city stories. Toggle instantly between **Newest** (`#01` strictly chronological) and **Most Covered** (multi-outlet press clusters, reply counts & shared topic buzz). |
 | 🛡️ **Official Local & National Police Feeds** | Integrates official government & local police APIs, RSS streams, and verified police portals across **60+ countries**—including **Polisen** (`polisen.se/api/events` + all 21 Swedish county RSS feeds), **Phuket Tourist Police / Phuket Provincial Police / local Phuket stations / Royal Thai Police** (`*.police.go.th`), **Politiet** (NO), **Politi Update** (DK), **Poliisi** (FI), **Politie** (NL), **Polizei / Blaulicht** (DE/AT/CH), **Met Police & police.uk** (GB), **NZ Police**, **QLD/AU Police**, **Europol**, and municipal police portals worldwide—strictly filtered to the selected place with a dedicated **Police** topic filter. |
-| 💬 **Automatic Forum Spotlight** | Even when zero press articles exist for an exact street address, NewzLocal automatically surfaces the **most important local forum threads & posts** right at the top of the feed—ranked by exact address match, urgent topics, community activity, and recency. |
-| 📱 **Native Android APK + Mobile Push Alerts** | Automatically prompts visitors on `nrnworld.one/NewzLocal` to install the signed **native Android app (`NewzLocal.apk`, `one.nrnworld.newzlocal`)** or Chrome WebAPK/PWA. Inside the Android APK, a persistent background `JobScheduler` service (`FavoriteNewsJobService`) checks up to **40 saved favourites directly on-device** (0 Worker cost, scaling to unlimited Android users) with automatic edge fallback, alongside RFC 8291 `aes128gcm` Web Push (up to **30 saved favourites**) for browser/PWA installs. |
+| 💬 **Automatic Forum Spotlight** | Even when zero press articles exist for an exact street address, NewNewz automatically surfaces the **most important local forum threads & posts** right at the top of the feed—ranked by exact address match, urgent topics, community activity, and recency. |
+| 📱 **Native Android APK + Mobile Push Alerts** | Automatically prompts visitors on `nrnworld.one/NewNewz` to install the signed **native Android app (`NewNewz.apk`, `one.nrnworld.newnewz`)** or Chrome WebAPK/PWA. Inside the Android APK, a persistent background `JobScheduler` service (`FavoriteNewsJobService`) checks up to **40 saved favourites directly on-device** (0 Worker cost, scaling to unlimited Android users) with automatic edge fallback, alongside RFC 8291 `aes128gcm` Web Push (up to **30 saved favourites**) for browser/PWA installs. |
 | 🌐 **Interactive 3D Globe & Map Styles** | Powered by MapLibre GL with 3D terrain/buildings, admin boundary polygons (OpenStreetMap & geoBoundaries), street geometry highlighting, and instant switching between **Satellite**, **Broadsheet Paper**, and **Night** map modes. |
 | 🗣️ **Global & Regional Discussion Sources** | Aggregates discussions from **Reddit**, **Lemmy**, **Flashback** (Sweden, including post-level `sp=1` search and relative timestamp parsing), **Ekşi Sözlük** (Türkiye), **Menéame** (Spain), **Hacker News**, and **Stack Exchange**. |
 | 🗞️ **Broadsheet Print Edition & "My Paper"** | Render any place's feed—or a combined front page of all your watched favourites—into a multi-page vintage newspaper layout, complete with shareable **newspaper clipping cards**. |
@@ -74,8 +74,8 @@ Zoom seamlessly from the entire planet down to **country → province/state → 
 **Prerequisites:** Node.js **20+** and npm
 
 ```bash
-git clone https://github.com/nRn-World/NewzLocal.git
-cd NewzLocal
+git clone https://github.com/nRn-World/NewNewz.git
+cd NewNewz
 npm install
 npm run dev
 ```
@@ -98,14 +98,14 @@ For details on deploying the optional Cloudflare Worker (CORS proxy + background
 
 ## 📜 License & Commercial / Service Inquiries
 
-This project is licensed under the **[NewzLocal Non-Commercial Educational License (NNEL) v1.1](LICENSE)**.
+This project is licensed under the **[NewNewz Non-Commercial Educational License (NNEL) v1.1](LICENSE)**.
 
 ### Summary of Terms
 
-- ✅ **Educational Use Permitted:** Students, educators, and researchers may inspect, study, and run this project **strictly for non-commercial educational and learning purposes**, provided clear visible credit to **"NewzLocal by nRnWorld"** is retained.
+- ✅ **Educational Use Permitted:** Students, educators, and researchers may inspect, study, and run this project **strictly for non-commercial educational and learning purposes**, provided clear visible credit to **"NewNewz by nRnWorld"** is retained.
 - ❌ **No Copying of the Service & No Monetization:** You may **not** copy, clone, rebrand, deploy as a public/competing service, sell, sublicense, display ads on, or earn money (directly or indirectly) from this project or any derivative work without prior written permission.
 - 🤝 **Companies, Individuals & Commercial / Service Licensing:**  
-  If a **company, organization, or private individual** wishes to use, copy, integrate, host, or monetize any part of NewzLocal, you **must contact the author first and reach a mutual written agreement** before doing so:
+  If a **company, organization, or private individual** wishes to use, copy, integrate, host, or monetize any part of NewNewz, you **must contact the author first and reach a mutual written agreement** before doing so:
 
   📧 **Contact:** **[bynrnworld@gmail.com](mailto:bynrnworld@gmail.com)**
 

@@ -28,9 +28,9 @@ jobs:
             ACCT_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/memberships?per_page=5" | jq -r '.result[0].account.id // empty' || true)
           fi
           if [ -n "$ACCT_ID" ]; then
-            KV_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[]? | select(.title == "newzlocal-subs") | .id' | head -n 1 || true)
+            KV_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[]? | select(.title == "newnewz-subs") | .id' | head -n 1 || true)
             if [ -z "$KV_ID" ]; then
-              KV_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"title":"newzlocal-subs"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces" | jq -r '.result.id // empty' || true)
+              KV_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"title":"newnewz-subs"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces" | jq -r '.result.id // empty' || true)
             fi
             if [ -n "$KV_ID" ]; then
               printf '\n[[kv_namespaces]]\nbinding = "SUBS_KV"\nid = "%s"\n' "$KV_ID" >> worker/wrangler.toml
@@ -38,12 +38,12 @@ jobs:
             else
               echo "::warning title=SUBS_KV::Could not provision SUBS_KV namespace (check Workers KV Storage Write permission)"
             fi
-            D1_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database?per_page=100" | jq -r '.result[]? | select(.name == "newzlocal-db") | .uuid' | head -n 1 || true)
+            D1_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database?per_page=100" | jq -r '.result[]? | select(.name == "newnewz-db") | .uuid' | head -n 1 || true)
             if [ -z "$D1_ID" ]; then
-              D1_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"name":"newzlocal-db"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database" | jq -r '.result.uuid // empty' || true)
+              D1_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"name":"newnewz-db"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database" | jq -r '.result.uuid // empty' || true)
             fi
             if [ -n "$D1_ID" ]; then
-              printf '\n[[d1_databases]]\nbinding = "SUBS_DB"\ndatabase_name = "newzlocal-db"\ndatabase_id = "%s"\n' "$D1_ID" >> worker/wrangler.toml
+              printf '\n[[d1_databases]]\nbinding = "SUBS_DB"\ndatabase_name = "newnewz-db"\ndatabase_id = "%s"\n' "$D1_ID" >> worker/wrangler.toml
               echo "::notice title=SUBS_DB::Provisioned and attached SUBS_DB D1 database"
             fi
           fi

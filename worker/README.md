@@ -1,6 +1,6 @@
-# NewzLocal Cloudflare Worker — Quick Setup Guide
+# NewNewz Cloudflare Worker — Quick Setup Guide
 
-All edge backend logic for **NewzLocal** lives in this zero-dependency Cloudflare Worker (`worker/`):
+All edge backend logic for **NewNewz** lives in this zero-dependency Cloudflare Worker (`worker/`):
 
 - **CORS Proxy Routes:** Bing News (`/bn`), Google News (`/gn`), Official Police Feeds (`/police-feed`, strict HTTPS allowlist), Reddit (`/rd`), Flashback (`/fb`), Ekşi Sözlük (`/eksi`), Menéame (`/meneame`), and inline Reader metadata (`/meta`)
 - **Background Mobile Web Push (`/push/*`):**
@@ -17,8 +17,8 @@ All edge backend logic for **NewzLocal** lives in this zero-dependency Cloudflar
 3. In your GitHub repository, open **Settings → Secrets and variables → Actions**:
    - Under **Secrets**, add `CLOUDFLARE_API_TOKEN` with your token.
 4. Pushing to `main` (or running the **Deploy Cloudflare Worker** workflow) automatically:
-   - Finds or creates the `newzlocal-subs` KV namespace and binds it as `SUBS_KV`
-   - Deploys `newzlocal-proxy` with its 5-minute cron trigger
+   - Finds or creates the `newnewz-subs` KV namespace and binds it as `SUBS_KV`
+   - Deploys `newnewz-proxy` with its 5-minute cron trigger
    - Passes the deployed Worker URL into the frontend build (`VITE_PROXY_URL`)
 
-> Licensed under the [NewzLocal Non-Commercial Educational License (NNEL) v1.1](../LICENSE). For any commercial or service-licensing inquiries, contact **[bynrnworld@gmail.com](mailto:bynrnworld@gmail.com)**.
+> Licensed under the [NewNewz Non-Commercial Educational License (NNEL) v1.1](../LICENSE). For any commercial or service-licensing inquiries, contact **[bynrnworld@gmail.com](mailto:bynrnworld@gmail.com)**.

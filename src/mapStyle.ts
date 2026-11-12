@@ -1,6 +1,6 @@
 export type MapMode = 'sat' | 'paper' | 'dark'
 
-const MAP_MODE_KEY = 'newzlocal.mapMode'
+const MAP_MODE_KEY = 'newnewz.mapMode'
 
 export function loadMapMode(): MapMode {
   try {

@@ -1,4 +1,4 @@
-package one.nrnworld.newzlocal;
+package one.nrnworld.newnewz;
 
 import android.app.job.JobParameters;
 import android.app.job.JobService;

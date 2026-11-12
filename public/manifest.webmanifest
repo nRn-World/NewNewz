@@ -1,7 +1,7 @@
 {
-  "id": "/NewzLocal/",
-  "name": "NewzLocal",
-  "short_name": "NewzLocal",
+  "id": "/NewNewz/",
+  "name": "NewNewz",
+  "short_name": "NewNewz",
   "description": "Local news, official police feeds, and forum discussions for any street, neighbourhood, or city on Earth.",
   "start_url": "./",
   "scope": "./",

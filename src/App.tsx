@@ -344,7 +344,7 @@ export default function App() {
   }, [lang])
 
   useEffect(() => {
-    document.title = totalUnread ? `(${totalUnread}) NewzLocal` : 'NewzLocal'
+    document.title = totalUnread ? `(${totalUnread}) NewNewz` : 'NewNewz'
   }, [totalUnread])
 
   // Load news / forum feed with full AbortController cancellation & strict date sorting
@@ -473,7 +473,7 @@ export default function App() {
     }
     const checkOnce = async () => {
       let seen: Record<string, string[]> = {}
-      try { seen = JSON.parse(localStorage.getItem('newzlocal.seen') ?? '{}') } catch { /* start over */ }
+      try { seen = JSON.parse(localStorage.getItem('newnewz.seen') ?? '{}') } catch { /* start over */ }
       for (const f of favs.slice(0, 25)) {
         if (ctrl.signal.aborted) return
         try {
@@ -513,7 +513,7 @@ export default function App() {
         } catch { /* retry next round */ }
         await new Promise((x) => setTimeout(x, 1800))
       }
-      try { localStorage.setItem('newzlocal.seen', JSON.stringify(seen)) } catch { /* private mode */ }
+      try { localStorage.setItem('newnewz.seen', JSON.stringify(seen)) } catch { /* private mode */ }
     }
     void check()
     const id = setInterval(check, 60_000)
@@ -536,7 +536,7 @@ export default function App() {
     if (!place) return
     const url = `${location.origin}${location.pathname}#p=${encodePlace(place, level)}`
     try {
-      if (navigator.share) await navigator.share({ title: `NewzLocal · ${label(place)}`, url })
+      if (navigator.share) await navigator.share({ title: `NewNewz · ${label(place)}`, url })
       else {
         await navigator.clipboard.writeText(url)
         setCopied(true)
@@ -643,7 +643,7 @@ export default function App() {
   }
 
   const handleClipStory = (a: Article, customPlace?: string) => {
-    const pName = customPlace ?? (place ? (place.parts[level]?.name ?? place.parts[0].name) : 'NewzLocal')
+    const pName = customPlace ?? (place ? (place.parts[level]?.name ?? place.parts[0].name) : 'NewNewz')
     const sum = readerData[`${lang}|${a.url}`]?.summary ?? a.summary
     void exportClipCard({
       title: a.title,
@@ -660,7 +660,7 @@ export default function App() {
     requestAppNotificationPermission()
       .then((p) => {
         setPerm(p)
-        if (p === 'granted') void showAppNotification('NewzLocal', t('notifyOn'))
+        if (p === 'granted') void showAppNotification('NewNewz', t('notifyOn'))
       })
       .catch(() => {})
   }
@@ -774,7 +774,7 @@ export default function App() {
                 goHome()
               }}
             >
-              NewzLocal
+              NewNewz
             </a>
           </h1>
           <div className="langs" role="group" aria-label={t('language')}>

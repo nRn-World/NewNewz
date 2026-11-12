@@ -44,9 +44,9 @@ export default function InstallPrompt({
         </button>
 
         <div className="apk-head">
-          <img src={iconUrl} alt="NewzLocal" width={52} height={52} className="apk-icon" />
+          <img src={iconUrl} alt="NewNewz" width={52} height={52} className="apk-icon" />
           <div>
-            <span className="apk-kicker">ANDROID APK · NEWZLOCAL</span>
+            <span className="apk-kicker">ANDROID APK · NEWNEWZ</span>
             <h2 id="apk-dialog-title">{t('apkPromptTitle')}</h2>
           </div>
         </div>
@@ -60,7 +60,7 @@ export default function InstallPrompt({
         <div className="apk-actions">
           <a
             href={apkUrl}
-            download="NewzLocal.apk"
+            download="NewNewz.apk"
             className="apk-btn primary"
             onClick={() => setDownloading(true)}
           >

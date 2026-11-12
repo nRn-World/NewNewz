@@ -1,4 +1,4 @@
-package one.nrnworld.newzlocal;
+package one.nrnworld.newnewz;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

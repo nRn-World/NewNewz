@@ -34,9 +34,9 @@ jobs:
             ACCT_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/memberships?per_page=5" | jq -r '.result[0].account.id // empty' || true)
           fi
           if [ -n "$ACCT_ID" ]; then
-            KV_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[]? | select(.title == "newzlocal-subs") | .id' | head -n 1 || true)
+            KV_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[]? | select(.title == "newnewz-subs") | .id' | head -n 1 || true)
             if [ -z "$KV_ID" ]; then
-              KV_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"title":"newzlocal-subs"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces" | jq -r '.result.id // empty' || true)
+              KV_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"title":"newnewz-subs"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces" | jq -r '.result.id // empty' || true)
             fi
             if [ -n "$KV_ID" ]; then
               printf '\n[[kv_namespaces]]\nbinding = "SUBS_KV"\nid = "%s"\n' "$KV_ID" >> worker/wrangler.toml
@@ -44,12 +44,12 @@ jobs:
             else
               echo "Warning: could not provision SUBS_KV namespace (check Workers KV Storage Write permission)"
             fi
-            D1_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database?per_page=100" | jq -r '.result[]? | select(.name == "newzlocal-db") | .uuid' | head -n 1 || true)
+            D1_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database?per_page=100" | jq -r '.result[]? | select(.name == "newnewz-db") | .uuid' | head -n 1 || true)
             if [ -z "$D1_ID" ]; then
-              D1_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"name":"newzlocal-db"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database" | jq -r '.result.uuid // empty' || true)
+              D1_ID=$(curl -sf -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data '{"name":"newnewz-db"}' "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/d1/database" | jq -r '.result.uuid // empty' || true)
             fi
             if [ -n "$D1_ID" ]; then
-              printf '\n[[d1_databases]]\nbinding = "SUBS_DB"\ndatabase_name = "newzlocal-db"\ndatabase_id = "%s"\n' "$D1_ID" >> worker/wrangler.toml
+              printf '\n[[d1_databases]]\nbinding = "SUBS_DB"\ndatabase_name = "newnewz-db"\ndatabase_id = "%s"\n' "$D1_ID" >> worker/wrangler.toml
               echo "Provisioned and attached SUBS_DB D1 database"
             fi
           fi
@@ -85,7 +85,7 @@ jobs:
           VITE_PROXY_URL: ${{ vars.VITE_PROXY_URL || vars.VITE_API_URL || needs.worker.outputs.worker_url }}
           VITE_GN_URL: ${{ vars.VITE_GN_URL }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
-      - name: Build & sign Android APK (NewzLocal.apk)
+      - name: Build & sign Android APK (NewNewz.apk)
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           SECRET_KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -97,7 +97,7 @@ jobs:
               ACCT_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/memberships?per_page=5" | jq -r '.result[0].account.id // empty' || true)
             fi
             if [ -n "$ACCT_ID" ]; then
-              KV_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[]? | select(.title == "newzlocal-subs") | .id' | head -n 1 || true)
+              KV_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[]? | select(.title == "newnewz-subs") | .id' | head -n 1 || true)
               if [ -n "$KV_ID" ]; then
                 EXISTING=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces/$KV_ID/values/android_keystore_p12_b64" || true)
                 if [ -n "$EXISTING" ]; then
@@ -105,7 +105,7 @@ jobs:
                   echo "Loaded persistent Android APK keystore from SUBS_KV"
                 else
                   TMP_P12=$(mktemp -u).p12
-                  keytool -genkeypair -keystore "$TMP_P12" -storetype PKCS12 -storepass newzlocal -keypass newzlocal -alias newzlocal -keyalg RSA -keysize 2048 -validity 10950 -dname "CN=NewzLocal, O=nRn World, C=SE"
+                  keytool -genkeypair -keystore "$TMP_P12" -storetype PKCS12 -storepass newzlocal -keypass newzlocal -alias newzlocal -keyalg RSA -keysize 2048 -validity 10950 -dname "CN=NewNewz, O=nRn World, C=SE"
                   KS_B64=$(base64 -w 0 "$TMP_P12")
                   rm -f "$TMP_P12"
                   curl -sf -X PUT -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: text/plain" --data "$KS_B64" "https://api.cloudflare.com/client/v4/accounts/$ACCT_ID/storage/kv/namespaces/$KV_ID/values/android_keystore_p12_b64" >/dev/null || true
