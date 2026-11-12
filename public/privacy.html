@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NewNewz – Privacy policy</title>
+<link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+<style>
+  :root { --paper:#efe6cf; --ink:#16130e; --red:#c8321e; --mu:#6d6451; color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #14110c; color: var(--ink); font: 16px/1.55 Georgia, 'Times New Roman', serif; }
+  main { max-width: 760px; margin: 24px auto; padding: 28px 24px 40px; background: var(--paper); border: 2px solid var(--ink); box-shadow: 6px 6px 0 var(--red); }
+  h1 { margin: 0 0 4px; font-size: 40px; line-height: 1.1; letter-spacing: -.02em; }
+  h2 { margin: 28px 0 6px; font-size: 20px; border-bottom: 2px solid var(--ink); padding-bottom: 4px; }
+  p, li { margin: 8px 0; }
+  ul { padding-left: 22px; }
+  .meta { color: var(--mu); font-size: 14px; margin: 0 0 18px; }
+  a { color: var(--red); }
+  @media (max-width: 800px) { main { margin: 0; border-left: 0; border-right: 0; box-shadow: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>NewNewz</h1>
+  <p class="meta">Privacy policy · Last updated 12 November 2026</p>
+
+  <p>NewNewz is a free app and website (<a href="https://nrnworld.one/NewNewz/">nrnworld.one/NewNewz</a>) published by nRn World. It shows local news and forum posts for any place on Earth. This page explains what data the app handles. We do not require an account, show ads, use analytics or sell data.</p>
+
+  <h2>What stays on your device</h2>
+  <p>Your favourite places, saved stories, alert and quiet-hour settings, chosen language and cached headlines and translations are stored on your device (browser storage or the Android app). We cannot see them, and you can delete them by clearing the app's data or removing the app.</p>
+
+  <h2>Places you search for or open</h2>
+  <p>To find news about a place, the app sends the name or coordinates of that place to the services below. These services also receive your IP address, as any website does when you connect to it.</p>
+  <ul>
+    <li><b>Place search and map:</b> Photon (photon.komoot.io) and OpenStreetMap Nominatim and Overpass for finding places, addresses and streets; map images from OpenFreeMap and Esri; area borders from geoBoundaries.</li>
+    <li><b>News:</b> Google News and Bing News headlines, official police news feeds (for example polisen.se), and other public news sources.</li>
+    <li><b>Forums and communities:</b> Reddit, Lemmy, Hacker News, Stack Exchange, Flashback and similar public sources.</li>
+    <li><b>Weather:</b> Open-Meteo.</li>
+    <li><b>Translation:</b> headline and summary text is sent to Google Translate so it can be shown in your language.</li>
+  </ul>
+  <p>Many of these requests pass through relay servers that we run on Cloudflare and Vercel. They forward the request, may cache the answer for a short time, and keep standard operational logs. We do not use these logs to identify or profile you.</p>
+
+  <h2>Location</h2>
+  <p>The app only uses your device location if you tap the locate button. Your coordinates are then sent to Photon to find the name of the place where you are. We do not store them.</p>
+
+  <h2>Notifications (optional)</h2>
+  <p>If you turn on notifications, the app can alert you about new stories for your favourite places.</p>
+  <ul>
+    <li><b>Website and installed web app:</b> we store your push subscription, language, time zone, quiet hours and your list of favourite places (names, coordinates and chosen topics) on our Cloudflare account, so that we can check for news and send the alert. This data expires after 90 days without use and is removed when you remove all your favourites or turn off notifications.</li>
+    <li><b>Android app:</b> checks for your favourites run on your device.</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>NewNewz shows real news, including crime and accident reports, and is not directed at children.</p>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li>Remove favourites or turn off notifications in the app or in your device settings at any time.</li>
+    <li>Do not use the locate button if you do not want to share your location.</li>
+    <li>To ask about data stored on our servers, open an issue at <a href="https://github.com/nRn-World/NewNewz/issues">github.com/nRn-World/NewNewz/issues</a>.</li>
+  </ul>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the new version and date will appear on this page.</p>
+</main>
+</body>
+</html>
