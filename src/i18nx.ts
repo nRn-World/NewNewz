@@ -4,8 +4,9 @@ import type { Lang } from './i18n'
 type D = Record<string, string>
 
 const en: D = {
+  tSerious: 'Serious', nearbyNote: 'Few recent stories about {p}, so the latest from {scope} is included.',
   close: 'Close', preview: 'Preview',
-  tAll: 'All topics', tPolice: 'Police', tCrime: 'Crime', tTraffic: 'Traffic', tHousing: 'Housing', tSchools: 'Schools', tSport: 'Sport', tPolitics: 'Politics',
+  tAll: 'Everything', tPolice: 'Police', tCrime: 'Crime', tTraffic: 'Traffic', tHousing: 'Housing', tSchools: 'Schools', tSport: 'Sport', tPolitics: 'Politics',
   tBusiness: 'Business', tWeather: 'Weather', tAccident: 'Accidents & fire', tCulture: 'Culture', tHealth: 'Health',
   sumNow: 'Right now:', report: 'Neighbourhood report', repWeek: '{n} items in the last 7 days', repUsual: 'usual {n} per week',
   repAbove: 'More active than usual', repBelow: 'Quieter than usual', repNormal: 'About as usual', repTop: 'Most talked about', repHot: 'Busiest areas',
@@ -39,8 +40,9 @@ const en: D = {
 }
 
 const sv: D = {
+  tSerious: 'Allvarligt', nearbyNote: 'Få färska nyheter om {p}, så det senaste från {scope} visas också.',
   close: 'Stäng', preview: 'Förhandsvisning',
-  tAll: 'Alla ämnen', tPolice: 'Polis', tCrime: 'Brott', tTraffic: 'Trafik', tHousing: 'Bostäder', tSchools: 'Skolor', tSport: 'Sport', tPolitics: 'Politik',
+  tAll: 'Allt', tPolice: 'Polis', tCrime: 'Brott', tTraffic: 'Trafik', tHousing: 'Bostäder', tSchools: 'Skolor', tSport: 'Sport', tPolitics: 'Politik',
   tBusiness: 'Ekonomi', tWeather: 'Väder', tAccident: 'Olyckor & brand', tCulture: 'Kultur', tHealth: 'Hälsa',
   sumNow: 'Just nu:', report: 'Grannskapsrapport', repWeek: '{n} nyheter senaste 7 dagarna', repUsual: 'vanligt {n} per vecka',
   repAbove: 'Mer aktivt än vanligt', repBelow: 'Lugnare än vanligt', repNormal: 'Ungefär som vanligt', repTop: 'Mest omskrivet', repHot: 'Mest händelser',
@@ -74,6 +76,7 @@ const sv: D = {
 }
 
 const tr_: D = {
+  tSerious: 'Ciddi', nearbyNote: '{p} hakkında yeni haber az, bu yüzden {scope} bölgesinden en yeniler de gösteriliyor.',
   close: 'Kapat', preview: 'Önizleme',
   tAll: 'Tüm konular', tPolice: 'Polis', tCrime: 'Suç', tTraffic: 'Trafik', tHousing: 'Konut', tSchools: 'Okullar', tSport: 'Spor', tPolitics: 'Siyaset',
   tBusiness: 'Ekonomi', tWeather: 'Hava', tAccident: 'Kazalar ve yangın', tCulture: 'Kültür', tHealth: 'Sağlık',
@@ -109,6 +112,7 @@ const tr_: D = {
 }
 
 const ar: D = {
+  tSerious: 'خطير', nearbyNote: 'الأخبار الحديثة عن {p} قليلة، لذلك تُعرض أيضًا أحدث أخبار {scope}.',
   close: 'إغلاق', preview: 'معاينة',
   tAll: 'كل المواضيع', tPolice: 'الشرطة', tCrime: 'جريمة', tTraffic: 'مرور', tHousing: 'سكن', tSchools: 'مدارس', tSport: 'رياضة', tPolitics: 'سياسة',
   tBusiness: 'اقتصاد', tWeather: 'طقس', tAccident: 'حوادث وحرائق', tCulture: 'ثقافة', tHealth: 'صحة',
@@ -144,6 +148,7 @@ const ar: D = {
 }
 
 const es: D = {
+  tSerious: 'Graves', nearbyNote: 'Hay pocas noticias recientes sobre {p}, así que también se muestran las últimas de {scope}.',
   close: 'Cerrar', preview: 'Vista previa',
   tAll: 'Todos los temas', tPolice: 'Policía', tCrime: 'Sucesos', tTraffic: 'Tráfico', tHousing: 'Vivienda', tSchools: 'Colegios', tSport: 'Deportes', tPolitics: 'Política',
   tBusiness: 'Economía', tWeather: 'Tiempo', tAccident: 'Accidentes e incendios', tCulture: 'Cultura', tHealth: 'Salud',
@@ -179,6 +184,7 @@ const es: D = {
 }
 
 const fr: D = {
+  tSerious: 'Graves', nearbyNote: 'Peu d’actualités récentes sur {p} : les dernières de {scope} sont aussi affichées.',
   close: 'Fermer', preview: 'Aperçu',
   tAll: 'Tous les sujets', tPolice: 'Police', tCrime: 'Faits divers', tTraffic: 'Circulation', tHousing: 'Logement', tSchools: 'Écoles', tSport: 'Sport', tPolitics: 'Politique',
   tBusiness: 'Économie', tWeather: 'Météo', tAccident: 'Accidents et incendies', tCulture: 'Culture', tHealth: 'Santé',
@@ -214,6 +220,7 @@ const fr: D = {
 }
 
 const de: D = {
+  tSerious: 'Ernstes', nearbyNote: 'Wenig Aktuelles zu {p}, daher wird auch das Neueste aus {scope} gezeigt.',
   close: 'Schließen', preview: 'Vorschau',
   tAll: 'Alle Themen', tPolice: 'Polizei', tCrime: 'Kriminalität', tTraffic: 'Verkehr', tHousing: 'Wohnen', tSchools: 'Schulen', tSport: 'Sport', tPolitics: 'Politik',
   tBusiness: 'Wirtschaft', tWeather: 'Wetter', tAccident: 'Unfälle & Brände', tCulture: 'Kultur', tHealth: 'Gesundheit',
@@ -250,6 +257,7 @@ const de: D = {
 
 // Kurmancî (Latin script)
 const ku: D = {
+  tSerious: 'Giran', nearbyNote: 'Li ser {p} nûçeyên nû kêm in, ji ber vê yekê yên herî nû yên {scope} jî tên nîşandan.',
   close: 'Bigire', preview: 'Pêşdîtin',
   tAll: 'Hemû mijar', tPolice: 'Polîs', tCrime: 'Sûc', tTraffic: 'Trafîk', tHousing: 'Xanî', tSchools: 'Dibistan', tSport: 'Werzîş', tPolitics: 'Siyaset',
   tBusiness: 'Aborî', tWeather: 'Hewa', tAccident: 'Qeza û şewat', tCulture: 'Çand', tHealth: 'Tenduristî',

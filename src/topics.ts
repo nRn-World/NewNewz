@@ -4,6 +4,10 @@ import { TOPICS, topicsOf } from './topicRules'
 
 export { TOPICS, topicsOf }
 
+/** The reader's three views: everything, serious (police, crime, accidents and fire) or politics. */
+export const SERIOUS = ['Police', 'Crime', 'Accident']
+export const matchesTopic = (ids: string[], topic: string) => (topic === 'Serious' ? ids.some((id) => SERIOUS.includes(id)) : ids.includes(topic))
+
 /** Number of articles per topic, biggest first. */
 export function topicCounts(list: Article[]) {
   const n = new Map<string, number>()

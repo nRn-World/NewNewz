@@ -1088,6 +1088,18 @@ export const saveSources = (l: string[]) => {
 
 const day = (d: Date) => d.toISOString().slice(0, 10)
 
+const widened = new Set<string>()
+
+/** Up to 20 of the newest stories about the exact place, the rest of the list filled with the newest from the area around it. */
+export function withNearby(exact: Article[], near: Article[], scope: string, want: number): Article[] {
+  const keep = exact.slice(0, 20)
+  const seen = new Set(exact.flatMap((a) => [a.url, norm(a.title)]))
+  const extra = near
+    .filter((a) => !seen.has(a.url) && !seen.has(norm(a.title)))
+    .map((a) => ({ ...a, exactMatch: false, scopeTag: a.exactMatch === false ? a.scopeTag : scope }))
+  return [...keep, ...extra.slice(0, want - keep.length)].sort((a, b) => +b.date - +a.date)
+}
+
 const newsCache = new Map<string, { at: number; r: { articles: Article[]; scope: string; query: string; exactCount: number } }>()
 
 const NON_LATIN_LANGS = new Set(['th', 'ja', 'ko', 'zh', 'ar', 'he', 'el', 'ru', 'uk', 'bn', 'fa'])
@@ -1318,7 +1330,22 @@ export async function news(
   onProgress?.(95)
   if (!ok) throw new Error('err.source')
   const finalArticles = currentMerged()
-  const r = { articles: finalArticles, scope: primary.own.name, query: primary.queries[0], exactCount: finalArticles.length }
+  // A street, venue or district with little recent news of its own is filled up with the newest from the area
+  // around it ("Kista centrum" -> Kista): what happens nearby is what people there want to know.
+  let articles = finalArticles
+  const upIdx = place.parts.findIndex((p, i) => i > from && p.level !== 'street')
+  const wideKey = `${primary.queries[0]}|${cc}`
+  if (small && monthsBack === 0 && upIdx > 0) {
+    const recent = finalArticles.filter((a) => Date.now() - +a.date < 7 * 864e5).length
+    // the minute-by-minute refresh sees one day only, so it follows what the full load decided
+    if (deep ? recent < 5 : !!onPartial && widened.has(wideKey)) {
+      if (deep) widened.add(wideKey)
+      const near = await news(place, upIdx, want, deep, undefined, 0, signal).catch(() => null)
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      if (near) articles = withNearby(finalArticles, near.articles, place.parts[upIdx].name, want)
+    } else if (deep) widened.delete(wideKey)
+  }
+  const r = { articles, scope: primary.own.name, query: primary.queries[0], exactCount: finalArticles.length }
   if (deep) newsCache.set(ck, { at: Date.now(), r })
   return r
 }

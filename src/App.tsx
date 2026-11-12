@@ -48,7 +48,7 @@ import {
 import type { MapMode } from './mapStyle'
 import { type Street, streets } from './overpass'
 import Paper from './Paper'
-import { topicsOf } from './topics'
+import { matchesTopic, topicsOf } from './topics'
 import Trending from './Trending'
 import { encodePlace, readHashPlace } from './urlState'
 import { type SheetSnap, useGlobe } from './useGlobe'
@@ -691,7 +691,7 @@ export default function App() {
     const base = (onlyNew ? only!.items : res?.articles) ?? []
     const qNorm = norm(newsFilter)
     const filtered = base.filter((a) => {
-      if (topic && tab === 'news' && !topicsOf(`${a.title} ${a.orig ?? ''}`, a.police).includes(topic)) return false
+      if (topic && tab === 'news' && !matchesTopic(topicsOf(`${a.title} ${a.orig ?? ''}`, a.police), topic)) return false
       if (qNorm) {
         const hay = norm(`${a.title} ${a.orig ?? ''} ${a.source} ${a.summary ?? ''} ${a.scopeTag ?? ''}`)
         if (!hay.includes(qNorm)) return false
@@ -704,6 +704,8 @@ export default function App() {
     // Strict chronological newest-first order (#01 is always the latest item)
     return [...filtered].sort((a, b) => +b.date - +a.date)
   })()
+
+  const nearbyScope = res?.articles.find((a) => a.exactMatch === false)?.scopeTag
 
   return (
     <div className="app">
@@ -973,6 +975,7 @@ export default function App() {
             {tab === 'news' && <TimeTravel months={months} setMonths={setMonths} t={t} />}
             {months > 0 && <p className="note">{t('archiveNote', { when: t(months === 1 ? 't1m' : months === 3 ? 't3m' : months === 6 ? 't6m' : 't1y').toLowerCase() })}</p>}
             {offline && <p className="offline">{t('offline')}</p>}
+            {tab === 'news' && nearbyScope && <p className="note">{t('nearbyNote', { p: res?.scope ?? '', scope: nearbyScope })}</p>}
             {busy && <ProgressBox key={`feed-${place.lat}-${place.lon}-${level}-${tab}-${months}`} label={t('loading')} pct={feedPct} estTotalSec={5} t={t} />}
             {stamp && !busy && (
               <p className="live">
@@ -1062,6 +1065,7 @@ export default function App() {
                       </a>
                       <small className="storymeta">
                         <span>
+                          {a.exactMatch === false && a.scopeTag && <span className="scopepill">{a.scopeTag}</span>}
                           {a.forum ? '◆ ' : a.police ? <span className="police-tag" title={t('tPolice')}>🛡 </span> : ''}
                           {a.source} · {a.approx ? '≈ ' : ''}
                           {ago(a.date, lang)}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Article } from './lib'
-import { hotWords, topicCounts } from './topics'
+import { hotWords, matchesTopic, topicCounts, topicsOf } from './topics'
 
 type T = (k: string, v?: Record<string, string>) => string
 
@@ -54,7 +54,7 @@ export function ProgressBox({
   )
 }
 
-/** Topic chips with counts; the line above them says what the place is about right now. */
+/** Three views (everything, serious, politics) with counts; the line above them says what the place is about right now. */
 export function TopicBar({ articles, topic, setTopic, t }: { articles: Article[]; topic: string; setTopic: (t: string) => void; t: T }) {
   const counts = topicCounts(articles)
   if (counts.length === 0) return null
@@ -62,8 +62,12 @@ export function TopicBar({ articles, topic, setTopic, t }: { articles: Article[]
     <div className="topics">
       <p className="sumline">{t('sumNow')} {counts.slice(0, 3).map(([id, n]) => `${n} ${t('t' + id).toLowerCase()}`).join(' · ')}</p>
       <div className="chips">
-        <button className={!topic ? 'chip on' : 'chip'} onClick={() => setTopic('')}>{t('tAll')} ({articles.length})</button>
-        {counts.map(([id, n]) => <button key={id} className={topic === id ? 'chip on' : 'chip'} onClick={() => setTopic(topic === id ? '' : id)}>{t('t' + id)} ({n})</button>)}
+        <button className={!topic ? 'chip on' : 'chip'} aria-pressed={!topic} onClick={() => setTopic('')}>{t('tAll')} ({articles.length})</button>
+        {['Serious', 'Politics'].map((id) => (
+          <button key={id} className={topic === id ? 'chip on' : 'chip'} aria-pressed={topic === id} onClick={() => setTopic(topic === id ? '' : id)}>
+            {t('t' + id)} ({articles.filter((a) => matchesTopic(topicsOf(`${a.title} ${a.orig ?? ''}`, a.police), id)).length})
+          </button>
+        ))}
       </div>
     </div>
   )
