@@ -17,6 +17,7 @@ import {
   flashbackCreated,
   inQuiet,
   matchesTarget,
+  withNearby,
   mentionsPlace,
   parseBingRssXml,
   parseFlashbackDate,
@@ -39,7 +40,7 @@ import {
 } from '../police'
 import { weatherSymbol } from '../weather'
 import { circle, rings } from '../overpass'
-import { STOP, hotWords, topicCounts, topicsOf } from '../topics'
+import { STOP, hotWords, matchesTopic, topicCounts, topicsOf } from '../topics'
 import { decodePlace, encodePlace, readHashPlace } from '../urlState'
 // @ts-expect-error Worker module is plain ESM JS
 import worker, { encryptWebPush, getOrCreateVapid, signVapidJwt } from '../../worker/index.js'
@@ -819,5 +820,24 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     } finally {
       g.window = prevWin
     }
+  })
+})
+
+describe('nearby fill and the three views', () => {
+  it('fills a sparse place with the newest from the area around it, newest first, without duplicates', () => {
+    const art = (url: string, title: string, daysAgo: number) => ({ url, title, source: 's', date: new Date(Date.now() - daysAgo * 864e5) })
+    const exact = [art('e1', 'Nya bostäder vid Kista centrum', 156)]
+    const near = [art('n1', 'Helikopter landade på E4 i Kista', 1), art('e1', 'dup', 2), art('n2', 'Brand i Kista', 3)]
+    const out = withNearby(exact, near, 'Kista', 100)
+    expect(out.map((a) => a.url)).toEqual(['n1', 'n2', 'e1'])
+    expect(out[0]).toMatchObject({ exactMatch: false, scopeTag: 'Kista' })
+    expect(out[2].exactMatch).toBeUndefined()
+    expect(withNearby(exact, near, 'Kista', 2)).toHaveLength(2)
+  })
+
+  it('counts police, crime and accidents as serious', () => {
+    expect(matchesTopic(['Accident'], 'Serious')).toBe(true)
+    expect(matchesTopic(['Politics'], 'Serious')).toBe(false)
+    expect(matchesTopic(['Politics', 'Sport'], 'Politics')).toBe(true)
   })
 })
