@@ -3,65 +3,169 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>NewNewz – Privacy policy</title>
+<title>NewNewz – Privacy Policy and Disclaimer</title>
+<meta name="description" content="How NewNewz handles your data, and what you should know about the news and forum content it shows." />
+<link rel="canonical" href="https://nrnworld.one/NewNewz/privacy.html" />
+<link rel="alternate" hreflang="sv" href="https://nrnworld.one/NewNewz/privacy-sv.html" />
 <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
 <style>
-  :root { --paper:#efe6cf; --ink:#16130e; --red:#c8321e; --mu:#6d6451; color-scheme: light; }
+  :root { --bg:#f6f2e7; --card:#fffdf8; --ink:#1c1a15; --mu:#5f5849; --line:#ddd3bc; --red:#b52a18; --warn:#fff3e6; --warn-line:#e0a15c; color-scheme: light; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #14110c; color: var(--ink); font: 16px/1.55 Georgia, 'Times New Roman', serif; }
-  main { max-width: 760px; margin: 24px auto; padding: 28px 24px 40px; background: var(--paper); border: 2px solid var(--ink); box-shadow: 6px 6px 0 var(--red); }
-  h1 { margin: 0 0 4px; font-size: 40px; line-height: 1.1; letter-spacing: -.02em; }
-  h2 { margin: 28px 0 6px; font-size: 20px; border-bottom: 2px solid var(--ink); padding-bottom: 4px; }
-  p, li { margin: 8px 0; }
-  ul { padding-left: 22px; }
-  .meta { color: var(--mu); font-size: 14px; margin: 0 0 18px; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.65 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  header.top { background: #14110c; color: #efe6cf; border-bottom: 4px solid var(--red); }
+  header.top .in { max-width: 860px; margin: 0 auto; padding: 22px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .brand { font: 800 26px/1 Georgia, 'Times New Roman', serif; letter-spacing: -.01em; margin: 0; }
+  .brand small { display: block; margin-top: 6px; font: 500 13px/1.2 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #cdbf9b; }
+  .lang a { color: #efe6cf; text-decoration: none; border: 1px solid #6d6451; padding: 6px 12px; border-radius: 4px; font-size: 14px; }
+  .lang a:hover { background: #2a251b; }
+  main { max-width: 860px; margin: 0 auto; padding: 28px 20px 56px; }
+  h1 { font: 800 34px/1.15 Georgia, 'Times New Roman', serif; margin: 0 0 6px; }
+  .meta { color: var(--mu); font-size: 14px; margin: 0 0 24px; }
+  h2 { font: 700 22px/1.3 Georgia, 'Times New Roman', serif; margin: 40px 0 8px; padding-top: 18px; border-top: 1px solid var(--line); scroll-margin-top: 12px; }
+  h2 .n { color: var(--red); margin-right: 8px; }
+  h3 { font-size: 16px; margin: 18px 0 4px; }
+  p { margin: 10px 0; }
+  ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 6px 0; }
   a { color: var(--red); }
-  @media (max-width: 800px) { main { margin: 0; border-left: 0; border-right: 0; box-shadow: none; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin: 16px 0; }
+  .card h3:first-child { margin-top: 0; }
+  .notice { background: var(--warn); border: 1px solid var(--warn-line); border-left: 6px solid var(--warn-line); border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+  .notice b.t { display: block; margin-bottom: 4px; }
+  nav.toc ol { columns: 2; column-gap: 28px; padding-left: 20px; margin: 8px 0 0; }
+  nav.toc li { break-inside: avoid; margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 15px; background: var(--card); border: 1px solid var(--line); }
+  th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  th { background: #efe8d4; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  .tw { overflow-x: auto; }
+  footer { max-width: 860px; margin: 0 auto; padding: 0 20px 40px; color: var(--mu); font-size: 14px; }
+  @media (max-width: 640px) { h1 { font-size: 28px; } nav.toc ol { columns: 1; } th, td { padding: 8px; font-size: 14px; } }
 </style>
 </head>
 <body>
+<header class="top">
+  <div class="in">
+    <p class="brand">NewNewz<small>Privacy Policy and Disclaimer</small></p>
+    <p class="lang"><a href="./privacy-sv.html" hreflang="sv" lang="sv">Svenska</a></p>
+  </div>
+</header>
+
 <main>
-  <h1>NewNewz</h1>
-  <p class="meta">Privacy policy · Last updated 12 November 2026</p>
+  <h1>Privacy Policy and Disclaimer</h1>
+  <p class="meta">Applies to the NewNewz website (<a href="https://nrnworld.one/NewNewz/">nrnworld.one/NewNewz</a>), the installable web app and the Android app · Last updated 12 November 2026</p>
 
-  <p>NewNewz is a free app and website (<a href="https://nrnworld.one/NewNewz/">nrnworld.one/NewNewz</a>) published by nRn World. It shows local news and forum posts for any place on Earth. This page explains what data the app handles. We do not require an account, show ads, use analytics or sell data.</p>
+  <div class="card">
+    <h3>In short</h3>
+    <ul>
+      <li>No account, no ads, no analytics and we do not sell data.</li>
+      <li>Your favourites, saved stories and settings stay on your device.</li>
+      <li>To show news about a place, the app asks public news and community services about that place. Those services see the request and your IP address.</li>
+      <li>Notifications and location are optional.</li>
+      <li><b>NewNewz does not write, check or endorse the news and forum posts it shows. Some of it may be false, misleading, outdated or upsetting. You use the app at your own risk (see section 10).</b></li>
+    </ul>
+  </div>
 
-  <h2>What stays on your device</h2>
-  <p>Your favourite places, saved stories, alert and quiet-hour settings, chosen language and cached headlines and translations are stored on your device (browser storage or the Android app). We cannot see them, and you can delete them by clearing the app's data or removing the app.</p>
+  <nav class="toc card" aria-label="Contents">
+    <b>Contents</b>
+    <ol>
+      <li><a href="#who">Who we are</a></li>
+      <li><a href="#device">What stays on your device</a></li>
+      <li><a href="#third">Services that receive requests</a></li>
+      <li><a href="#location">Location</a></li>
+      <li><a href="#notifications">Notifications</a></li>
+      <li><a href="#retention">Retention and deletion</a></li>
+      <li><a href="#children">Children</a></li>
+      <li><a href="#rights">Your rights</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#disclaimer">Content disclaimer and use at your own risk</a></li>
+      <li><a href="#changes">Changes and contact</a></li>
+    </ol>
+  </nav>
 
-  <h2>Places you search for or open</h2>
-  <p>To find news about a place, the app sends the name or coordinates of that place to the services below. These services also receive your IP address, as any website does when you connect to it.</p>
+  <h2 id="who"><span class="n">1</span>Who we are</h2>
+  <p>NewNewz is a free app published by nRn World, a Swedish developer. It shows local news and forum discussions for any country, city, neighbourhood or street. For questions about this policy, see section 11.</p>
+
+  <h2 id="device"><span class="n">2</span>What stays on your device</h2>
+  <p>Your favourite places and their alert settings, saved stories, chosen language, quiet hours and cached headlines and translations are stored on your device, in browser storage or in the Android app. We cannot see this data. You can delete it by clearing the app's data in your browser or device settings, or by uninstalling the app.</p>
+
+  <h2 id="third"><span class="n">3</span>Services that receive requests</h2>
+  <p>NewNewz does not have its own news database. When you open a place, the app asks the services below about it. They receive the place name or coordinates you chose, and, as with any website, your IP address and device type. Each service has its own privacy policy, and we do not control it.</p>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Purpose</th><th>Services</th><th>What is sent</th></tr></thead>
+    <tbody>
+      <tr><td>Finding places, addresses and streets</td><td>Photon (photon.komoot.io), OpenStreetMap Nominatim and Overpass</td><td>What you type in the search box, or coordinates you tap on the globe</td></tr>
+      <tr><td>Map and borders</td><td>OpenFreeMap, Esri, geoBoundaries</td><td>Map areas you view</td></tr>
+      <tr><td>News headlines</td><td>Google News, Bing News, official police news feeds (for example polisen.se), other public news sources</td><td>The place name as a search query</td></tr>
+      <tr><td>Forums and communities</td><td>Reddit, Lemmy, Hacker News, Stack Exchange, Flashback and similar public sources</td><td>The place name as a search query</td></tr>
+      <tr><td>Weather</td><td>Open-Meteo</td><td>Coordinates of the place</td></tr>
+      <tr><td>Translation</td><td>Google Translate</td><td>Headline and summary text</td></tr>
+      <tr><td>Relay servers</td><td>Our own relays on Cloudflare and Vercel</td><td>The requests above are forwarded through them. They cache answers for a short time and keep standard operational logs. We do not use those logs to identify or profile you.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="location"><span class="n">4</span>Location</h2>
+  <p>The app only uses your device location if you tap the locate button. Your coordinates are then sent to Photon to find the name of the place where you are. We do not store them. You can deny location access in your browser or device settings, and the rest of the app works without it.</p>
+
+  <h2 id="notifications"><span class="n">5</span>Notifications</h2>
+  <p>Notifications are optional. If you turn them on:</p>
   <ul>
-    <li><b>Place search and map:</b> Photon (photon.komoot.io) and OpenStreetMap Nominatim and Overpass for finding places, addresses and streets; map images from OpenFreeMap and Esri; area borders from geoBoundaries.</li>
-    <li><b>News:</b> Google News and Bing News headlines, official police news feeds (for example polisen.se), and other public news sources.</li>
-    <li><b>Forums and communities:</b> Reddit, Lemmy, Hacker News, Stack Exchange, Flashback and similar public sources.</li>
-    <li><b>Weather:</b> Open-Meteo.</li>
-    <li><b>Translation:</b> headline and summary text is sent to Google Translate so it can be shown in your language.</li>
+    <li><b>Website and installed web app:</b> we store your push subscription, language, time zone, quiet hours and your list of favourite places (names, coordinates and chosen topics) on our Cloudflare account, so that we can look for news and send you an alert.</li>
+    <li><b>Android app:</b> the checks for your favourite places run on your device.</li>
   </ul>
-  <p>Many of these requests pass through relay servers that we run on Cloudflare and Vercel. They forward the request, may cache the answer for a short time, and keep standard operational logs. We do not use these logs to identify or profile you.</p>
+  <p>You can turn notifications off at any time in the app or in your device settings.</p>
 
-  <h2>Location</h2>
-  <p>The app only uses your device location if you tap the locate button. Your coordinates are then sent to Photon to find the name of the place where you are. We do not store them.</p>
+  <h2 id="retention"><span class="n">6</span>Retention and deletion</h2>
+  <p>Notification data on our servers is deleted automatically after 90 days without use, and immediately when you remove all your favourite places or turn notifications off. Data on your device stays until you remove it. Third-party services keep data according to their own policies.</p>
 
-  <h2>Notifications (optional)</h2>
-  <p>If you turn on notifications, the app can alert you about new stories for your favourite places.</p>
+  <h2 id="children"><span class="n">7</span>Children</h2>
+  <p>NewNewz shows real news, including reports about crime, accidents and violence. It is not intended for children.</p>
+
+  <h2 id="rights"><span class="n">8</span>Your rights</h2>
+  <p>If you are in the EU, the EEA or the UK, you have the right to access, correct and delete personal data we hold about you, to object to its processing and to withdraw consent at any time. We process notification data on the basis of your consent, and request data needed to show you news on the basis of our legitimate interest in operating the app. You can complain to your data protection authority, in Sweden the Swedish Authority for Privacy Protection (IMY). To use your rights, contact us as described in section 11.</p>
+
+  <h2 id="security"><span class="n">9</span>Security</h2>
+  <p>Connections between the app and our relays use HTTPS. No system is completely secure, and we cannot guarantee the security of data sent to third-party services.</p>
+
+  <h2 id="disclaimer"><span class="n">10</span>Content disclaimer and use at your own risk</h2>
+
+  <div class="notice">
+    <b class="t">Please read this section.</b>
+    NewNewz is a tool that finds and displays content published by others. We do not write, edit, verify, moderate or endorse that content, and we do not stand behind it. Everything you do with the app, and everything you decide based on what it shows, is at your own responsibility.
+  </div>
+
+  <h3>We do not vouch for the content</h3>
+  <p>Headlines, summaries, forum posts and police notices come from third parties and are collected automatically. They can be false, misleading, incomplete, out of date, exaggerated or satirical. For example:</p>
   <ul>
-    <li><b>Website and installed web app:</b> we store your push subscription, language, time zone, quiet hours and your list of favourite places (names, coordinates and chosen topics) on our Cloudflare account, so that we can check for news and send the alert. This data expires after 90 days without use and is removed when you remove all your favourites or turn off notifications.</li>
-    <li><b>Android app:</b> checks for your favourites run on your device.</li>
+    <li>A headline may report a fire, an arrest or a threat on a street that turns out not to exist, or that is in a different city with the same name.</li>
+    <li>A forum post may repeat a rumour, a conspiracy theory or an unproven accusation, and a person named in a crime report may later be cleared.</li>
+    <li>A story may be old news that is being shared again, or may be written to provoke.</li>
+    <li>Machine translation can change the meaning of a sentence or reverse it.</li>
+    <li>A story can be matched to the wrong place because the place name is common.</li>
   </ul>
+  <p>Opinions in forums and comments are those of their authors, not ours. Items marked as police come from the police sources named in the app, and they are the authority's words, not ours.</p>
 
-  <h2>Children</h2>
-  <p>NewNewz shows real news, including crime and accident reports, and is not directed at children.</p>
+  <h3>Content that may upset you</h3>
+  <p>The news about a place can include crime, violence, accidents, disasters, death and other distressing subjects. We do not choose which stories appear. You can use the topic filters, avoid opening stories you do not want to read, or stop using the app if it affects your well-being. If you feel unwell after reading something, talk to someone you trust or contact a health professional.</p>
 
-  <h2>Your choices</h2>
-  <ul>
-    <li>Remove favourites or turn off notifications in the app or in your device settings at any time.</li>
-    <li>Do not use the locate button if you do not want to share your location.</li>
-    <li>To ask about data stored on our servers, open an issue at <a href="https://github.com/nRn-World/NewNewz/issues">github.com/nRn-World/NewNewz/issues</a>.</li>
-  </ul>
+  <h3>Not for emergencies, safety or advice</h3>
+  <p>NewNewz is not an alert, warning or emergency service. News can be delayed or missing, so never rely on the app to find out whether you or someone else is in danger. In an emergency, call your local emergency number (for example 112 in the EU). Nothing in the app is legal, medical, financial, safety or travel advice, and you should not use it as the only basis for decisions about where to live, travel or invest.</p>
 
-  <h2>Changes</h2>
-  <p>If this policy changes, the new version and date will appear on this page.</p>
+  <h3>No warranty and limited liability</h3>
+  <p>The app is provided "as is" and "as available", without promises that it will be accurate, complete, uninterrupted or free of errors. To the extent the law allows, nRn World is not liable for any loss, damage, distress or cost that arises from using the app or from content shown in it, including content you reach through links. Nothing in this section limits liability that cannot be limited by law, and it does not affect your rights as a consumer.</p>
+
+  <h3>Links and third-party sites</h3>
+  <p>Opening a story takes you to a site that we do not control. You do so at your own risk, and that site's own terms and privacy policy apply. NewNewz is not affiliated with, and is not endorsed by, the news organisations, police authorities, forums and other services it mentions. Their names belong to their owners.</p>
+
+  <h3>If you disagree with a story</h3>
+  <p>We cannot change or remove what other publishers have written. If a story is wrong, harmful or unlawful, contact the original publisher or platform. If the app shows something clearly illegal, tell us (section 11) and we will look at whether the source should be blocked.</p>
+
+  <h2 id="changes"><span class="n">11</span>Changes and contact</h2>
+  <p>If this policy changes, the new version and its date will be published on this page. Continued use of the app after a change means that you accept the updated policy.</p>
+  <p>Questions, requests about your data and reports of problems: open an issue at <a href="https://github.com/nRn-World/NewNewz/issues">github.com/nRn-World/NewNewz/issues</a>.</p>
 </main>
+<footer>© 2026 nRn World · <a href="https://nrnworld.one/">nrnworld.one</a></footer>
 </body>
 </html>
