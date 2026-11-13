@@ -17,6 +17,7 @@ import {
   flashbackCreated,
   inQuiet,
   matchesTarget,
+  isSearchable,
   rankByLevel,
   withNearby,
   mentionsPlace,
@@ -420,12 +421,17 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     expect(mentionsPlace('Reseguide till Phukets bästa stränder', phuketAliases)).toBe(true)
     expect(mentionsPlace('Bangkok stock exchange closes higher in Thailand', phuketAliases)).toBe(false)
 
-    // Named venue / lokal ("Kista Galleria")
+    // A shop or restaurant is no place: a click on one gives its street. A centre ("Kista centrum") is a place.
     const venue = toPlace({
       geometry: { coordinates: [17.94, 59.4] },
       properties: { type: 'other', name: 'Kista Galleria', street: 'Kistagången', district: 'Kista', city: 'Stockholm', country: 'Sverige', countrycode: 'SE' },
     })
-    expect(venue.parts[0]).toEqual({ level: 'street', name: 'Kista Galleria' })
+    expect(venue.parts[0]).toEqual({ level: 'street', name: 'Kistagången' })
+    const centre = toPlace({
+      geometry: { coordinates: [17.94, 59.4] },
+      properties: { type: 'other', name: 'Kista centrum', street: 'Danmarksgatan', district: 'Kista', city: 'Stockholm', country: 'Sverige', countrycode: 'SE' },
+    })
+    expect(centre.parts[0]).toEqual({ level: 'street', name: 'Kista centrum' })
 
     // Short / accented names ("Åre", "Lund") avoid false positives ("are", "Lundqvist")
     expect(mentionsPlace('Rekordmånga bokar skidresa till Åre', ['Åre'])).toBe(true)
@@ -848,5 +854,27 @@ describe('search ranking', () => {
     const p = (level: 'street' | 'city' | 'country', name: string) => ({ lat: 0, lon: 0, parts: [{ level, name }] })
     const out = rankByLevel([p('street', 'Erbil (Çorum)'), p('street', 'Erbil (Berlin)'), p('city', 'Erbil (Iraq)'), p('country', 'Erbil land')])
     expect(out.map((x) => x.parts[0].name)).toEqual(['Erbil land', 'Erbil (Iraq)', 'Erbil (Çorum)', 'Erbil (Berlin)'])
+  })
+})
+
+describe('what the search may find', () => {
+  it('finds places, streets, addresses and centres but not businesses', () => {
+    expect(isSearchable('place', 'city', 'Erbil', false)).toBe(true)
+    expect(isSearchable('place', 'quarter', 'Midtown', false)).toBe(true)
+    expect(isSearchable('boundary', 'administrative', 'Stockholm', false)).toBe(true)
+    expect(isSearchable('highway', 'residential', 'Drottninggatan', false)).toBe(true)
+    expect(isSearchable('place', 'house', undefined, true)).toBe(true)
+    expect(isSearchable('building', 'apartments', undefined, true)).toBe(true)
+    expect(isSearchable('landuse', 'retail', 'Vällingby centrum', false)).toBe(true)
+    expect(isSearchable('highway', 'bus_stop', 'Kista centrum', false)).toBe(true)
+    expect(isSearchable('amenity', 'restaurant', 'Erbil', true)).toBe(false)
+    expect(isSearchable('healthcare', 'dentist', 'Tandvård i Centrum', true)).toBe(false)
+    expect(isSearchable('amenity', 'theatre', 'New York City Center', true)).toBe(false)
+    expect(isSearchable('amenity', 'fast_food', 'New York Pizza', true)).toBe(false)
+    expect(isSearchable('shop', 'supermarket', 'Hemköp Vällingby', true)).toBe(false)
+    expect(isSearchable('tourism', 'hotel', 'Hilton New York Midtown', true)).toBe(false)
+    expect(isSearchable('railway', 'subway_entrance', 'Vällingby', false)).toBe(false)
+    expect(isSearchable('highway', 'bus_stop', 'Kirunaplan', false)).toBe(false)
+    expect(isSearchable('building', 'train_station', 'Stockholms centralstation', true)).toBe(false)
   })
 })

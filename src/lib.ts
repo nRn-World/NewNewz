@@ -119,6 +119,7 @@ export function toPlace(f: Feat): Place {
     !!p.name &&
     !/^\d+[a-z]?$/i.test(p.name.trim()) &&
     !isSettlement &&
+    CENTRE_RE.test(p.name) &&
     p.type !== 'street' &&
     p.type !== 'district' &&
     p.type !== 'locality' &&
@@ -151,12 +152,16 @@ function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
 }
 
 async function photon(q: string, lang: string, signal?: AbortSignal): Promise<Place[]> {
-  const r = await fetch(`${PHOTON}/api/?q=${encodeURIComponent(q)}&limit=6&lang=${pl(lang)}`, { signal: withTimeout(signal, 8000) })
+  const r = await fetch(`${PHOTON}/api/?q=${encodeURIComponent(q)}&limit=15&lang=${pl(lang)}`, { signal: withTimeout(signal, 8000) })
   if (!r.ok) throw new Error('err.search')
-  return ((await r.json()).features as Feat[]).map(toPlace).filter((p) => p.parts.length)
+  return ((await r.json()).features as Feat[])
+    .filter(({ properties: p }) => isSearchable(p.osm_key, p.osm_value, p.name, !!(p.street && p.housenumber)))
+    .map(toPlace)
+    .filter((p) => p.parts.length)
+    .slice(0, 8)
 }
 
-type NomHit = { lat: string; lon: string; name: string; type?: string; class?: string; namedetails?: { name?: string }; address: Record<string, string> }
+type NomHit = { lat: string; lon: string; name: string; type?: string; category?: string; class?: string; namedetails?: { name?: string }; address: Record<string, string> }
 
 let nomNext = 0
 /** Nominatim finds exact home addresses, venues, islands, streets, suburbs, cities and countries. Polite 1 req/s spacing. */
@@ -165,27 +170,31 @@ async function nominatim(q: string, signal?: AbortSignal): Promise<Place[]> {
   nomNext = Math.max(Date.now(), nomNext) + 1050
   if (wait > 0) await abortableSleep(wait, signal)
   const r = await fetch(
-    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&namedetails=1&limit=6&accept-language=zz`,
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&namedetails=1&limit=12&accept-language=zz`,
     { signal: withTimeout(signal, 8000) },
   )
   if (!r.ok) return []
   return ((await r.json()) as NomHit[])
+    .filter((x) => isSearchable(x.category ?? x.class, x.type, x.namedetails?.name ?? x.name, !!(x.address?.road && x.address?.house_number)))
+    .slice(0, 8)
     .map((x) => {
       const a = x.address ?? {}
+      const cls = x.category ?? x.class
       const parts: Part[] = []
       const add = (lv: Level, nm?: string) => {
         if (nm && !parts.some((p) => norm(p.name) === norm(nm))) parts.push({ level: lv, name: nm })
       }
       const hitName = (x.namedetails?.name ?? x.name ?? '').trim()
-      const road = a.road || a.pedestrian || a.residential || (x.class === 'highway' ? hitName : undefined)
+      const road = a.road || a.pedestrian || a.residential || (cls === 'highway' ? hitName : undefined)
       const suburb = a.suburb || a.neighbourhood || a.quarter || a.city_district || a.borough
-      const city = a.city || a.town || a.village || a.municipality || (x.type === 'island' ? hitName : undefined) || (!road && x.class === 'place' ? hitName : undefined)
+      const city = a.city || a.town || a.village || a.municipality || (x.type === 'island' ? hitName : undefined) || (!road && cls === 'place' ? hitName : undefined)
       if (
         hitName &&
         !/^\d+[a-z]?$/i.test(hitName) &&
-        x.class !== 'highway' &&
-        x.class !== 'boundary' &&
-        x.class !== 'place' &&
+        cls !== 'highway' &&
+        cls !== 'boundary' &&
+        cls !== 'place' &&
+        CENTRE_RE.test(hitName) &&
         norm(hitName) !== norm(road ?? '') &&
         norm(hitName) !== norm(suburb ?? '') &&
         norm(hitName) !== norm(city ?? '')
@@ -203,6 +212,27 @@ async function nominatim(q: string, signal?: AbortSignal): Promise<Place[]> {
       return { lat: +x.lat, lon: +x.lon, cc: a.country_code, parts }
     })
     .filter((p) => p.parts.length > 0)
+}
+
+/** A "centre": Vällingby centrum, Kista centrum, Stockholm Zentrum, downtown... */
+const CENTRE_RE = /(^|[^\p{L}])(centrum|centre|center|centro|zentrum|sentrum|keskusta|merkez|downtown)([^\p{L}]|$)/iu
+const STOP_LIKE = new Set(['bus_stop', 'platform', 'bus_station', 'tram_stop', 'services', 'rest_area', 'elevator', 'crossing', 'traffic_signals', 'speed_camera', 'street_lamp', 'milestone', 'motorway_junction', 'turning_circle'])
+const BUSINESS = new Set(['amenity', 'shop', 'tourism', 'office', 'healthcare', 'craft', 'leisure', 'club', 'sport', 'emergency'])
+const HOME_BUILDINGS = new Set(['yes', 'house', 'apartments', 'residential', 'detached', 'terrace', 'semidetached_house', 'dormitory', 'commercial', 'retail', 'office'])
+
+/**
+ * What the search may find: countries, regions, cities, districts, streets, addresses and centres. Restaurants, shops,
+ * hotels and other businesses are left out. A stop, area or square that is called "... centrum" counts as a centre.
+ */
+export function isSearchable(key: string | undefined, value: string | undefined, name: string | undefined, hasAddress: boolean): boolean {
+  if (!key) return true
+  if (BUSINESS.has(key)) return false
+  if (name && CENTRE_RE.test(name)) return true
+  if (key === 'place' || key === 'boundary') return true
+  if (key === 'highway') return !STOP_LIKE.has(value ?? '')
+  if (key === 'landuse') return value === 'retail' || value === 'commercial'
+  if (key === 'building') return hasAddress && HOME_BUILDINGS.has(value ?? '')
+  return false
 }
 
 const LEVEL_RANK: Record<Level, number> = { country: 0, state: 1, city: 2, district: 3, street: 4 }
@@ -264,7 +294,9 @@ export async function search(q: string, lang = 'en', signal?: AbortSignal): Prom
     const exact = [...photonHits, ...noms].filter(
       (h) => norm(h.parts[0].name) === norm(text) || normClean.includes(norm(streetBaseName(h.parts[0].name))),
     )
-    const hits = [...rankByLevel(exact), ...photonHits, ...noms]
+    const ordered = [...rankByLevel(exact), ...photonHits, ...noms]
+    // a bare name ("Erbil") finds the city first; Photon files some cities under their local-script name, so they are not "exact"
+    const hits = !/\d/.test(clean) && words.length <= 2 ? rankByLevel(ordered) : ordered
     if (hits.length) {
       // First hit wins a shared label, so the best match keeps both its rank and its own coordinates.
       const deduped = hits.filter((h, i) => hits.findIndex((x) => label(x) === label(h)) === i)
