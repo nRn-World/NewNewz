@@ -68,8 +68,6 @@ const RAW_EDITIONS: Record<string, [string, string, string, string?]> = {
   DZ: ['fr', 'fr', 'fr'],
   TN: ['fr', 'fr', 'fr'],
   IR: ['fa', 'fa', 'fa'],
-  // Kurdistan (no ISO code, no Kurdish edition): English-language regional press, ranked from Iraq where most of it is published
-  KU: ['en', 'en', 'en', 'IQ'],
   // Americas
   US: ['en-US', 'en', 'en'],
   CA: ['en-CA', 'en', 'en'],
@@ -182,7 +180,6 @@ export const SUBS: Record<string, string[]> = {
   EG: ['Egypt', 'Cairo'],
   IL: ['Israel', 'telaviv'],
   IR: ['Iran'],
-  KU: ['kurdistan', 'kurdish'],
   IN: ['india', 'mumbai', 'delhi', 'bangalore'],
   JP: ['japan', 'japanlife', 'tokyo'],
   KR: ['korea', 'seoul'],

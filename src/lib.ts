@@ -9,7 +9,6 @@ import { norm } from './areas'
 import { clusterArticles, type RelatedItem } from './cluster'
 import { editionFor, wordsFor } from './editions'
 import { lemmyDiscussions, localSubreddits, regionalDiscussions } from './forums'
-import { KURDISTAN_CC, KURDISTAN_NAMES, inKurdistan, isKurdistanName, kurdify, kurdistanHomeCc, kurdistanPlace } from './kurdistan'
 import { fetchDirectPoliceFeeds, isOfficialPoliceUrl, policeSearchQueries } from './police'
 import { STOP, topicsOf } from './topics'
 import { encodePlace } from './urlState'
@@ -154,7 +153,7 @@ function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
 async function photon(q: string, lang: string, signal?: AbortSignal): Promise<Place[]> {
   const r = await fetch(`${PHOTON}/api/?q=${encodeURIComponent(q)}&limit=6&lang=${pl(lang)}`, { signal: withTimeout(signal, 8000) })
   if (!r.ok) throw new Error('err.search')
-  return ((await r.json()).features as Feat[]).map(toPlace).filter((p) => p.parts.length).map(kurdify)
+  return ((await r.json()).features as Feat[]).map(toPlace).filter((p) => p.parts.length)
 }
 
 type NomHit = { lat: string; lon: string; name: string; type?: string; class?: string; namedetails?: { name?: string }; address: Record<string, string> }
@@ -204,7 +203,6 @@ async function nominatim(q: string, signal?: AbortSignal): Promise<Place[]> {
       return { lat: +x.lat, lon: +x.lon, cc: a.country_code, parts }
     })
     .filter((p) => p.parts.length > 0)
-    .map(kurdify)
 }
 
 const searchCache = new Map<string, Place[]>()
@@ -220,8 +218,7 @@ export async function suggest(q: string, lang = 'en', signal?: AbortSignal): Pro
   const ck = clean.toLowerCase()
   const hit = suggestCache.get(ck)
   if (hit) return hit
-  const own = isKurdistanName(clean) ? [kurdistanPlace()] : []
-  const hits = [...own, ...(await photon(clean, lang, signal))]
+  const hits = await photon(clean, lang, signal)
   const out = hits.filter((h, i) => hits.findIndex((x) => label(x) === label(h)) === i)
   if (suggestCache.size > 200) suggestCache.clear()
   suggestCache.set(ck, out)
@@ -246,9 +243,6 @@ export async function search(q: string, lang = 'en', signal?: AbortSignal): Prom
     ...Array.from({ length: words.length }, (_, idx) => words.slice(0, words.length - idx).join(' ')),
   ].filter((s) => s.length >= 2))]
 
-  // Kurdistan is no geocoder's idea of a country, so the app answers for it itself and lists it first.
-  const own = isKurdistanName(clean) ? [kurdistanPlace()] : []
-
   for (const text of candidates) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const [ph, nom] = await Promise.allSettled([photon(text, lang, signal), nominatim(text, signal)])
@@ -260,7 +254,7 @@ export async function search(q: string, lang = 'en', signal?: AbortSignal): Prom
     const exact = [...photonHits, ...noms].filter(
       (h) => norm(h.parts[0].name) === norm(text) || normClean.includes(norm(streetBaseName(h.parts[0].name))),
     )
-    const hits = [...own, ...exact, ...photonHits, ...noms]
+    const hits = [...exact, ...photonHits, ...noms]
     if (hits.length) {
       // First hit wins a shared label, so the best match keeps both its rank and its own coordinates.
       const deduped = hits.filter((h, i) => hits.findIndex((x) => label(x) === label(h)) === i)
@@ -280,14 +274,13 @@ export async function reverse(lat: number, lon: number, lang = 'en', signal?: Ab
   const r = await fetch(`${PHOTON}/reverse?lat=${lat}&lon=${lon}&lang=${pl(lang)}`, { signal: withTimeout(signal, 8000) })
   if (!r.ok) throw new Error('err.place')
   const f = ((await r.json()).features as Feat[])[0]
-  const res = f ? kurdify({ ...toPlace(f), lat, lon }) : null
+  const res = f ? { ...toPlace(f), lat, lon } : null
   revCache.set(ck, res)
   return res
 }
 
 /** Country under a point; Nominatim copes with remote land where Photon's radius search finds nothing. */
 export async function reverseCountry(lat: number, lon: number, _lang = 'en', signal?: AbortSignal): Promise<Place | null> {
-  if (inKurdistan(lat, lon)) return kurdistanPlace(lat, lon)
   const ck = `c:${lat.toFixed(2)},${lon.toFixed(2)}`
   if (revCache.has(ck)) return revCache.get(ck)!
   const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=3&namedetails=1&lat=${lat}&lon=${lon}`, {
@@ -876,8 +869,7 @@ const EXONYM_GROUPS: string[][] = [
   ['grekland', 'greece'],
   ['turkiet', 'turkiye', 'turkey'],
   ['storbritannien', 'united kingdom', 'britain'],
-  // Kurdistan and its cities: Kurdish (Kurmancî / Soranî), official and English press spellings
-  KURDISTAN_NAMES.map((n) => n.toLowerCase()),
+  // Kurdish-region cities: Kurdish (Kurmancî / Soranî), official and English press spellings
   // (the first Latin spelling after the official name is also searched, so it is the one Kurdish outlets use)
   ['Erbil', 'Hewler', 'Arbil', 'Irbil', 'أربيل', 'اربيل', 'هەولێر', 'ھەولێر'],
   ['Diyarbakir', 'Amed'],
@@ -924,7 +916,7 @@ export function placeAliases(own: Part, cc?: string): string[] {
     }
   }
 
-  if (own.level === 'country' && cc && /^[A-Za-z]{2}$/.test(cc) && !isKurdistanName(clean)) {
+  if (own.level === 'country' && cc && /^[A-Za-z]{2}$/.test(cc)) {
     const upper = cc.toUpperCase()
     for (const loc of ['en', 'sv', 'de', 'fr', 'es', 'tr']) {
       try {
@@ -1003,8 +995,6 @@ export function target(place: Place, from: number) {
         ...new Set([
           `"${cleanName}"`,
           ...aliases.filter((a) => norm(a) !== norm(cleanName) && /^[A-Za-z\s-]+$/.test(a)).slice(0, 1).map((a) => `"${a}"`),
-          // Most of Kurdistan's own press writes the name in Arabic script (Arabic and Soranî spellings)
-          ...(own.level === 'country' && isKurdistanName(cleanName) ? ['"كردستان"', '"کوردستان"'] : []),
         ]),
       ]
   const query = queries[0] ?? `"${cleanName}"`
@@ -1050,21 +1040,13 @@ export function mergeAll(
     .slice(0, want)
 }
 
-/**
- * The country whose news edition, forums and police feeds cover a place. Kurdistan itself has an edition of its own;
- * a town or province inside it is covered by the press of the state it lies in.
- */
-export function newsCc(place: Place, from = 0): string | undefined {
-  const cc = place.cc?.toUpperCase()
-  if (cc !== KURDISTAN_CC || place.parts[from]?.level === 'country') return cc
-  return kurdistanHomeCc(place.lat, place.lon) ?? cc
+/** The country whose news edition, forums and police feeds cover a place. */
+export function newsCc(place: Place): string | undefined {
+  return place.cc?.toUpperCase()
 }
 
-/** The same for background alert checks (Worker cron, Android job), which only know real ISO country codes. */
-export function alertCc(place: Place): string | undefined {
-  const cc = newsCc(place)
-  return cc === KURDISTAN_CC ? editionFor(cc).cc : cc
-}
+/** The same for background alert checks (Worker cron, Android job). */
+export const alertCc = newsCc
 
 const LADDER = ['1h', '3h', '6h', '12h', '1d', '2d', '4d', '7d', '14d', '30d', '90d', '180d', '1y']
 const FULL = 95
@@ -1119,7 +1101,7 @@ export async function news(
   onProgress?: (pct: number) => void,
 ) {
   const primary = target(place, from)
-  const cc = newsCc(place, from) ?? 'US'
+  const cc = newsCc(place) ?? 'US'
   const ck = `${primary.queries.join('|')}|${from}|${cc}|${monthsBack}|${want}`
   const hit = deep ? newsCache.get(ck) : undefined
   if (hit) {
@@ -1545,7 +1527,7 @@ export async function forum(
   onProgress?: (pct: number) => void,
 ) {
   const primary = target(place, from)
-  const cc = newsCc(place, from) ?? ''
+  const cc = newsCc(place) ?? ''
   const acc = new Map<string, Article>()
   let doneTasks = 0
   const placeNames = place.parts.slice(from).map((p) => (p.level === 'street' ? streetBaseName(p.name) : p.name))
@@ -2001,7 +1983,7 @@ const FAV = 'newnewz.favs'
 export const loadFavs = (): Place[] =>
   loadList<Place>(FAV, (x) => {
     const p = x as Partial<Place> | null
-    return !!p && typeof p.lat === 'number' && typeof p.lon === 'number' && Array.isArray(p.parts) && p.parts.length > 0 && p.parts.every((part) => typeof part?.name === 'string')
+    return !!p && p.cc?.toUpperCase() !== 'KU' && typeof p.lat === 'number' && typeof p.lon === 'number' && Array.isArray(p.parts) && p.parts.length > 0 && p.parts.every((part) => typeof part?.name === 'string')
   })
 export const saveFavs = (f: Place[]) => {
   try { localStorage.setItem(FAV, JSON.stringify(f)) } catch { /* private mode */ }
