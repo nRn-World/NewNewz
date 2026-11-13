@@ -17,6 +17,7 @@ import {
   flashbackCreated,
   inQuiet,
   matchesTarget,
+  rankByLevel,
   withNearby,
   mentionsPlace,
   parseBingRssXml,
@@ -839,5 +840,13 @@ describe('nearby fill and the three views', () => {
     expect(matchesTopic(['Accident'], 'Serious')).toBe(true)
     expect(matchesTopic(['Politics'], 'Serious')).toBe(false)
     expect(matchesTopic(['Politics', 'Sport'], 'Politics')).toBe(true)
+  })
+})
+
+describe('search ranking', () => {
+  it('puts the city before a street or restaurant with the same name', () => {
+    const p = (level: 'street' | 'city' | 'country', name: string) => ({ lat: 0, lon: 0, parts: [{ level, name }] })
+    const out = rankByLevel([p('street', 'Erbil (Çorum)'), p('street', 'Erbil (Berlin)'), p('city', 'Erbil (Iraq)'), p('country', 'Erbil land')])
+    expect(out.map((x) => x.parts[0].name)).toEqual(['Erbil land', 'Erbil (Iraq)', 'Erbil (Çorum)', 'Erbil (Berlin)'])
   })
 })

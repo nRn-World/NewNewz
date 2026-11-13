@@ -205,6 +205,16 @@ async function nominatim(q: string, signal?: AbortSignal): Promise<Place[]> {
     .filter((p) => p.parts.length > 0)
 }
 
+const LEVEL_RANK: Record<Level, number> = { country: 0, state: 1, city: 2, district: 3, street: 4 }
+
+/**
+ * A bare name ("Erbil") should find the city before a street, restaurant or village that happens to share it:
+ * Photon lists those first and files the real city under its local-script name. Stable, so equals keep their order.
+ */
+export function rankByLevel(places: Place[]): Place[] {
+  return [...places].sort((a, b) => LEVEL_RANK[a.parts[0].level] - LEVEL_RANK[b.parts[0].level])
+}
+
 const searchCache = new Map<string, Place[]>()
 const suggestCache = new Map<string, Place[]>()
 
@@ -218,7 +228,7 @@ export async function suggest(q: string, lang = 'en', signal?: AbortSignal): Pro
   const ck = clean.toLowerCase()
   const hit = suggestCache.get(ck)
   if (hit) return hit
-  const hits = await photon(clean, lang, signal)
+  const hits = rankByLevel(await photon(clean, lang, signal))
   const out = hits.filter((h, i) => hits.findIndex((x) => label(x) === label(h)) === i)
   if (suggestCache.size > 200) suggestCache.clear()
   suggestCache.set(ck, out)
@@ -254,7 +264,7 @@ export async function search(q: string, lang = 'en', signal?: AbortSignal): Prom
     const exact = [...photonHits, ...noms].filter(
       (h) => norm(h.parts[0].name) === norm(text) || normClean.includes(norm(streetBaseName(h.parts[0].name))),
     )
-    const hits = [...exact, ...photonHits, ...noms]
+    const hits = [...rankByLevel(exact), ...photonHits, ...noms]
     if (hits.length) {
       // First hit wins a shared label, so the best match keeps both its rank and its own coordinates.
       const deduped = hits.filter((h, i) => hits.findIndex((x) => label(x) === label(h)) === i)
