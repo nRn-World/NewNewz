@@ -1,9 +1,7 @@
 import type { Lang } from './i18n'
-import { kurdify, kurdistanPlace } from './kurdistan'
 import type { Place } from './lib'
 
 const WORLD_POOL: Place[] = [
-  kurdistanPlace(),
   { lat: 36.1912, lon: 44.0092, cc: 'iq', parts: [{ level: 'city', name: 'Erbil' }, { level: 'country', name: 'Iraq' }] },
   { lat: 35.5613, lon: 45.4375, cc: 'iq', parts: [{ level: 'city', name: 'Sulaymaniyah' }, { level: 'country', name: 'Iraq' }] },
   { lat: 36.8679, lon: 42.9489, cc: 'iq', parts: [{ level: 'city', name: 'Duhok' }, { level: 'country', name: 'Iraq' }] },
@@ -30,8 +28,7 @@ const WORLD_POOL: Place[] = [
   { lat: -33.8688, lon: 151.2093, cc: 'au', parts: [{ level: 'city', name: 'Sydney' }, { level: 'country', name: 'Australia' }] },
 ]
 
-// Cities inside Kurdistan are listed under it, exactly as a search or a map click files them.
-const GLOBAL_POOL = WORLD_POOL.map(kurdify)
+const GLOBAL_POOL = WORLD_POOL
 
 const BY_LANG: Record<Lang, string[]> = {
   sv: ['Stockholm', 'Göteborg', 'Malmö', 'İstanbul', 'London', 'New York'],
@@ -41,7 +38,7 @@ const BY_LANG: Record<Lang, string[]> = {
   es: ['Madrid', 'Barcelona', 'São Paulo', 'New York', 'Paris', 'London'],
   fr: ['Paris', 'Marseille', 'London', 'Berlin', 'New York', 'Tokyo'],
   de: ['Berlin', 'München', 'London', 'Paris', 'İstanbul', 'New York'],
-  ku: ['Kurdistan', 'Erbil', 'Diyarbakır', 'Sulaymaniyah', 'Duhok', 'Qamishli'],
+  ku: ['Erbil', 'Diyarbakır', 'Sulaymaniyah', 'Duhok', 'Qamishli', 'Stockholm'],
 }
 
 export default function Trending({

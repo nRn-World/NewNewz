@@ -33,7 +33,6 @@ const COUNTRY_SUBS: Record<string, string[]> = {
   MA: ['Morocco'],
   LB: ['lebanon'],
   IQ: ['Iraq'],
-  KU: ['kurdistan'],
   IN: ['india'],
   JP: ['japan', 'japanlife'],
   KR: ['korea'],
@@ -97,8 +96,6 @@ const CITY_SUBS: Record<string, string> = {
   chiangmai: 'chiangmai',
   'chiang mai': 'chiangmai',
   bali: 'bali',
-  // any place in Kurdistan also searches its own community, whichever state's forums cover it
-  kurdistan: 'kurdistan',
 }
 
 /** Country and city subreddits relevant to a selected place (city subreddit first so local hits take priority). */

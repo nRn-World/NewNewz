@@ -2,8 +2,7 @@
 type Pos = [number, number]
 export type Area = {
   type: 'Feature'
-  /** `cc` is set on areas of a country that spans several states (Kurdistan): the state whose districts lie below it. */
-  properties: { name: string; parent?: string; sel?: number; center?: Pos; cc?: string }
+  properties: { name: string; parent?: string; sel?: number; center?: Pos }
   geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: Pos[][] | Pos[][][] }
 }
 export type Areas = { type: 'FeatureCollection'; features: Area[] }
@@ -13,17 +12,10 @@ const ISO3 = Object.fromEntries(
     .split(' ').map((s) => [s.slice(0, 2), s.slice(2)]),
 )
 
-/** Kurdistan has no ISO 3166 code; this unassigned one stands in for it everywhere a country code is expected. */
-export const KURDISTAN_CC = 'KU'
-
 const cache = new Map<string, Promise<Areas | null>>()
 
 /** adm 1 = provinces/states, 2 = districts. Resolves null when the country has no such level. */
 export function boundaries(cc: string, adm: 1 | 2): Promise<Areas | null> {
-  if (cc.toUpperCase() === KURDISTAN_CC) {
-    // Bundled provinces; their districts come from the state each province lies in (see `properties.cc`).
-    return adm === 1 ? import('./geo/kurdistan-provinces.json').then((m) => m.default as unknown as Areas) : Promise.resolve(null)
-  }
   const iso = ISO3[cc.toUpperCase()]
   if (!iso) return Promise.resolve(null)
   const key = `${iso}${adm}`
