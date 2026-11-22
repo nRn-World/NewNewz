@@ -5,8 +5,9 @@ import {
   requestAppNotificationPermission,
   syncNativeAndroidFavorites,
 } from './androidBridge'
-import { norm } from './areas'
+import { haversineKm, norm } from './areas'
 import { clusterArticles, type RelatedItem } from './cluster'
+import { fetchDirectNewsFeeds } from './directNews'
 import { editionFor, wordsFor } from './editions'
 import { lemmyDiscussions, localSubreddits, regionalDiscussions } from './forums'
 import { LruCache } from './lru'
@@ -61,6 +62,9 @@ export type Article = {
   score?: number
   comments?: number
   also?: RelatedItem[]
+  lat?: number
+  lon?: number
+  customRss?: boolean
 }
 
 /** Strips house numbers / apartment suffixes from a street address ("Ribegatan 31B" -> "Ribegatan") for news/forum queries. */
@@ -643,6 +647,66 @@ async function googleHeadlines(query: string, country: string, when: string, sig
   return fetchRssViaCorsBridges(canonicalRss, parseGoogleRssXml, ed.lang, signal)
 }
 
+export function parseYahooRssXml(xmlText: string, lang: string): Article[] {
+  if (!/<rss\b|<channel\b|<feed\b/i.test(xmlText)) throw new Error('err.source')
+  const seen = new Set<string>()
+  const unwrapYahoo = (rawLink: string): string => {
+    const ruMatch = /\/RU=([^/]+)\/RK=/.exec(rawLink)
+    if (ruMatch) {
+      try {
+        const decoded = decodeURIComponent(ruMatch[1])
+        if (/^https?:\/\//i.test(decoded)) return decoded
+      } catch { /* keep original */ }
+    }
+    return rawLink
+  }
+  const items: Article[] = []
+  for (const m of xmlText.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+    const b = m[1]
+    const rawLink = xmlTag(b, 'link')
+    const url = unwrapYahoo(rawLink)
+    const rawTitle = xmlTag(b, 'title')
+    const source = xmlTag(b, 'source') || 'Yahoo News'
+    const title = source && rawTitle.endsWith(` - ${source}`) ? rawTitle.slice(0, -source.length - 3) : rawTitle
+    const desc = xmlTag(b, 'description')
+    const date = clampDate(new Date(xmlTag(b, 'pubDate')))
+    if (!url || !title || isNaN(+date) || seen.has(title)) continue
+    seen.add(title)
+    items.push({
+      url,
+      title,
+      summary: cleanSnippet(desc, title, source),
+      source,
+      date,
+      lang,
+      ...(isOfficialPoliceUrl(url) ? { police: true } : {}),
+    })
+  }
+  return items
+}
+
+async function yahooHeadlines(query: string, country: string, signal?: AbortSignal): Promise<Article[]> {
+  const ed = editionFor(country)
+  const qs = `p=${encodeURIComponent(query)}`
+  const canonicalYahoo = `https://news.search.yahoo.com/rss?${qs}`
+
+  // 1. Native Android APK direct device fetch (0 Cloudflare Worker requests!)
+  const directTxt = await nativeAndroidFetchText(canonicalYahoo, { signal })
+  if (directTxt) {
+    try { return parseYahooRssXml(directTxt, ed.lang) } catch { /* fallback */ }
+  }
+
+  if (!isLocalProxyBlocked()) {
+    try {
+      const r = await fetch(`${API}/yn/rss?${qs}`, { signal: withTimeout(signal, 4500) })
+      if (r.ok) return parseYahooRssXml(await r.text(), ed.lang)
+    } catch (e) {
+      if (signal?.aborted) throw e
+    }
+  }
+  return fetchRssViaCorsBridges(canonicalYahoo, parseYahooRssXml, ed.lang, signal)
+}
+
 /** Parses GDELT DOC 2.0 `YYYYMMDDTHHmmssZ` timestamps into JS Dates. */
 export function parseGdeltDate(s: string): Date {
   const iso = s.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z')
@@ -713,6 +777,7 @@ async function headlines(query: string, country: string, when: string, signal?: 
   const settled = await Promise.allSettled([
     bingHeadlines(query, country, when, signal),
     googleHeadlines(query, country, when, signal),
+    ...(when === '' || when === '1h' || when === '1d' ? [yahooHeadlines(query, country, signal)] : []),
   ])
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   const anySucceeded = settled.some((s) => s.status === 'fulfilled')
@@ -1090,7 +1155,6 @@ export function newsCc(place: Place): string | undefined {
 /** The same for background alert checks (Worker cron, Android job). */
 export const alertCc = newsCc
 
-const LADDER = ['1h', '3h', '6h', '12h', '1d', '2d', '4d', '7d', '14d', '30d', '90d', '180d', '1y']
 const FULL = 95
 
 const SRC = 'newnewz.sources'
@@ -1108,6 +1172,98 @@ const isText = (x: unknown) => typeof x === 'string' && x.length > 0
 export const loadSources = (): string[] => loadList<string>(SRC, isText)
 export const saveSources = (l: string[]) => {
   try { localStorage.setItem(SRC, JSON.stringify(l)) } catch { /* private mode */ }
+}
+
+const RSS_KEY = 'newnewz.rssFeeds'
+const isHttpsUrl = (x: unknown) => typeof x === 'string' && /^https:\/\/[^/\s]+\.[^/\s]+/i.test(x)
+export const loadRssFeeds = (): string[] => loadList<string>(RSS_KEY, isHttpsUrl)
+export const saveRssFeeds = (l: string[]) => {
+  try { localStorage.setItem(RSS_KEY, JSON.stringify(l.slice(0, 20))) } catch { /* private mode */ }
+}
+
+const customRssCache = new LruCache<string, Article[]>(40, 120_000)
+
+/** Parses a standard RSS 2.0 or Atom feed into NewNewz `Article` items (for user-added custom local RSS feeds). */
+export function parseGenericRssXml(xmlText: string, feedUrl: string): Article[] {
+  if (!/<rss\b|<channel\b|<feed\b/i.test(xmlText)) throw new Error('err.source')
+  let hostLabel = feedUrl
+  try {
+    hostLabel = new URL(feedUrl).hostname.replace(/^www\./, '')
+  } catch { /* keep raw */ }
+
+  const seen = new Set<string>()
+  const out: Article[] = []
+  const blocks = [
+    ...xmlText.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi),
+    ...xmlText.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi),
+  ]
+  for (const m of blocks) {
+    const b = m[1]
+    const title = xmlTag(b, 'title').replace(/\s+/g, ' ').trim()
+    let link = xmlTag(b, 'link')
+    if (!link) link = /<link\b[^>]*\bhref=["']([^"']+)["']/i.exec(b)?.[1] ?? ''
+    if (!link || !title || seen.has(link)) continue
+    seen.add(link)
+    const rawDesc = xmlTag(b, 'description') || xmlTag(b, 'summary') || xmlTag(b, 'content')
+    const pubStr = xmlTag(b, 'pubDate') || xmlTag(b, 'published') || xmlTag(b, 'updated') || xmlTag(b, 'dc:date')
+    const date = pubStr ? clampDate(new Date(pubStr)) : new Date()
+    if (isNaN(+date)) continue
+    out.push({
+      url: link,
+      title,
+      summary: cleanSnippet(rawDesc, title, hostLabel),
+      source: `📡 ${hostLabel}`,
+      date,
+      customRss: true,
+    })
+  }
+  return out.slice(0, 40)
+}
+
+async function fetchSingleCustomRss(feedUrl: string, signal?: AbortSignal): Promise<Article[]> {
+  const cached = customRssCache.get(feedUrl)
+  if (cached) return cached
+  const directAndroid = await nativeAndroidFetchText(feedUrl, { signal })
+  if (directAndroid) {
+    try {
+      const items = parseGenericRssXml(directAndroid, feedUrl)
+      customRssCache.set(feedUrl, items)
+      return items
+    } catch { /* fallback */ }
+  }
+  if (API) {
+    try {
+      const r = await fetch(`${API}/rss?url=${encodeURIComponent(feedUrl)}`, { signal: withTimeout(signal, 6000) })
+      if (r.ok) {
+        const items = parseGenericRssXml(await r.text(), feedUrl)
+        customRssCache.set(feedUrl, items)
+        return items
+      }
+    } catch (e) {
+      if (signal?.aborted) throw e
+    }
+  }
+  try {
+    const winner = await Promise.any([
+      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`, { signal: withTimeout(signal, 6000) }).then((r) =>
+        r.ok ? r.text() : Promise.reject(new Error('err.source')),
+      ),
+      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`, { signal: withTimeout(signal, 6000) }).then((r) =>
+        r.ok ? r.text() : Promise.reject(new Error('err.source')),
+      ),
+    ])
+    const items = parseGenericRssXml(winner, feedUrl)
+    customRssCache.set(feedUrl, items)
+    return items
+  } catch {
+    return []
+  }
+}
+
+export async function fetchCustomRssFeeds(feeds: string[], signal?: AbortSignal): Promise<Article[]> {
+  if (!feeds.length) return []
+  const settled = await Promise.allSettled(feeds.slice(0, 12).map((u) => fetchSingleCustomRss(u, signal)))
+  return settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
 }
 
 const day = (d: Date) => d.toISOString().slice(0, 10)
@@ -1141,10 +1297,12 @@ export async function news(
   monthsBack = 0,
   signal?: AbortSignal,
   onProgress?: (pct: number) => void,
-) {
+  radiusKm = 0,
+): Promise<{ articles: Article[]; scope: string; query: string; exactCount: number }> {
   const primary = target(place, from)
   const cc = newsCc(place) ?? 'US'
-  const ck = `${primary.queries.join('|')}|${from}|${cc}|${monthsBack}|${want}`
+  const rssFeeds = deep ? loadRssFeeds() : []
+  const ck = `${primary.queries.join('|')}|${from}|${cc}|${monthsBack}|${want}|r${radiusKm}|rss${rssFeeds.length}`
   const hit = deep ? newsCache.getEntry(ck) : undefined
   if (hit) {
     onProgress?.(100)
@@ -1173,7 +1331,22 @@ export async function news(
   ]
 
   const tagItems = (items: Article[]): Article[] =>
-    items.filter((a) => matchesTarget(a, primary)).map((a) => ({ ...a, scopeTag: primary.cleanName, exactMatch: true }))
+    items
+      .filter((a) => {
+        if (matchesTarget(a, primary)) return true
+        if (radiusKm > 0 && a.lat !== undefined && a.lon !== undefined) {
+          return haversineKm(place.lat, place.lon, a.lat, a.lon) <= radiusKm
+        }
+        return false
+      })
+      .map((a) => {
+        if (radiusKm > 0 && a.lat !== undefined && a.lon !== undefined && !matchesTarget(a, primary)) {
+          const dist = haversineKm(place.lat, place.lon, a.lat, a.lon)
+          const distTag = dist < 1 ? `${Math.max(100, Math.round(dist * 1000))} m` : `${dist.toFixed(1)} km`
+          return { ...a, where: `${a.where ?? ''} ${primary.cleanName}`.trim(), scopeTag: distTag, exactMatch: true }
+        }
+        return { ...a, scopeTag: primary.cleanName, exactMatch: true }
+      })
 
   const win = async (q: string, w: string) => {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -1246,48 +1419,79 @@ export async function news(
     await Promise.allSettled(tasks)
   })()
 
+  // Parallel free direct broadcaster & newspaper RSS feeds (SVT, DN, BBC, Guardian, NPR, Al Jazeera, Rudaw, etc.)
+  const directNewsPromise =
+    monthsBack === 0
+      ? fetchDirectNewsFeeds({ ...place, cc }, from, API, signal)
+          .then((directItems) => {
+            if (!directItems.length) return
+            ok++
+            const matched = tagItems(directItems)
+            if (matched.length) {
+              lists.push(matched)
+              emit()
+            }
+          })
+          .catch(() => {})
+      : Promise.resolve()
+
+  // Parallel user-added custom RSS feeds
+  const customRssPromise =
+    deep && rssFeeds.length && monthsBack === 0
+      ? fetchCustomRssFeeds(rssFeeds, signal)
+          .then((items) => {
+            if (!items.length) return
+            ok++
+            const matched = tagItems(items)
+            const picked = matched.length
+              ? matched
+              : items.slice(0, 5).map((a) => ({ ...a, where: `${a.where ?? ''} ${primary.cleanName}`.trim(), scopeTag: 'RSS', exactMatch: true }))
+            if (picked.length) {
+              lists.push(picked)
+              emit()
+            }
+          })
+          .catch(() => {})
+      : Promise.resolve()
+
   if (monthsBack > 0) {
-    for (const q of primary.queries) await win(q, archiveWin)
+    await Promise.all(primary.queries.map((q) => win(q, archiveWin)))
   } else if (!deep) {
     await Promise.all([win(primary.queries[0], '1h'), win(primary.queries[0], '1d')])
   } else {
-    // Unwindowed results come back by relevance, so a busy place fills all 100 slots without its last hour:
-    // always ask for the newest hour as well (measured: newest story 42 min old without it, 4 min with it).
+    // Run the last-hour window + all primary queries in parallel so the first 100 freshest stories arrive immediately
     const freshest = win(primary.queries[0], '1h').catch(() => 0)
-    let maxInitialRaw = 0
-    for (let i = 0; i < primary.queries.length; i += 2) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (currentMerged().length >= want) break
-      const batch = primary.queries.slice(i, i + 2)
-      const sizes = await Promise.all(batch.map((q) => win(q, '')))
-      maxInitialRaw = Math.max(maxInitialRaw, ...sizes)
-    }
+    const initialSizes = await Promise.all(primary.queries.map((q) => win(q, '')))
+    const maxInitialRaw = Math.max(0, ...initialSizes)
+    onProgress?.(45)
 
     if (currentMerged().length < want) {
       if (maxInitialRaw >= FULL) {
-        // High-volume place (e.g. major city/country): walk fine-grained recent windows
-        for (let li = 0; li < LADDER.length; li++) {
+        // High-volume place (major city/country): walk recent windows in parallel waves of 3 (~3x faster)
+        const waves = [
+          ['3h', '12h', '1d'],
+          ['2d', '7d', '30d'],
+          ['90d', '180d', '1y'],
+        ]
+        for (let wi = 0; wi < waves.length; wi++) {
           if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-          onProgress?.(Math.min(80, 35 + Math.round(((li + 1) / LADDER.length) * 45)))
-          const size = await win(primary.queries[0], LADDER[li])
-          if (currentMerged().length >= want && size < FULL) break
+          if (currentMerged().length >= want) break
+          onProgress?.(Math.min(82, 48 + (wi + 1) * 11))
+          await Promise.all(waves[wi].map((w) => win(primary.queries[0], w)))
         }
       } else {
-        // District, suburb, street, or town (e.g. Husby, Kista, Ribegatan, Phuket):
-        // explicitly sweep 7-day, 30-day, and 1-year windows so stories from 3–7 days & recent weeks surface up to 100
+        // District, suburb, street, or town: sweep 7d, 30d, and 1y windows in parallel for fast 100-item fill
         const sweepQueries = [
           ...new Set([
             ...(!primary.mustMatchParent && primary.cleanName.length >= 4 ? [`"${primary.cleanName}"`] : []),
             primary.queries.find((q) => !q.endsWith('"')) ?? primary.queries[0],
           ]),
         ]
-        const sweepWindows = ['7d', '30d', '1y']
-        for (let wi = 0; wi < sweepWindows.length; wi++) {
-          if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-          if (currentMerged().length >= want) break
-          onProgress?.(Math.min(82, 42 + (wi + 1) * 13))
-          await Promise.all(sweepQueries.map((sq) => win(sq, sweepWindows[wi])))
-        }
+        onProgress?.(68)
+        await Promise.all(
+          ['7d', '30d', '1y'].flatMap((sw) => sweepQueries.map((sq) => win(sq, sw))),
+        )
+        onProgress?.(82)
       }
     }
 
@@ -1350,8 +1554,8 @@ export async function news(
     }
   }
 
-  await policePromise
-  onProgress?.(95)
+  await Promise.all([policePromise, directNewsPromise, customRssPromise])
+  onProgress?.(100)
   if (!ok) throw new Error('err.source')
   const finalArticles = currentMerged()
   // A street, venue or district with little recent news of its own is filled up with the newest from the area

@@ -31,6 +31,11 @@ export default defineConfig(({ command }) => ({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/bn/, ''),
       },
+      '/yn': {
+        target: 'https://news.search.yahoo.com',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/yn/, ''),
+      },
     },
   },
   build: {

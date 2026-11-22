@@ -79,6 +79,10 @@ footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var
 [dir=rtl] .crumbs .share+.fav{margin-right:6px;margin-left:0}
 .live{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--red)}
 .live::before{content:'';display:inline-block;width:8px;height:8px;margin-inline-end:6px;background:var(--red);border-radius:50%;animation:blink 1.4s steps(2) infinite}
+.live-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.refreshbtn{border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);padding:1px 7px;font:700 14px/1.2 'Courier Prime',monospace;box-shadow:2px 2px 0 var(--ink);transition:transform .08s,box-shadow .08s}
+.refreshbtn:hover{background:var(--paper2);color:var(--red)}
+.refreshbtn:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
 @keyframes blink{50%{opacity:.15}}
 @media(prefers-reduced-motion:reduce){.live::before{animation:none}}
 
@@ -376,6 +380,26 @@ footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var
 .apk-btn.secondary:hover{background:var(--ink);color:var(--paper)}
 .apk-later{justify-self:center;background:none;border:0;padding:4px 10px;font:700 12.5px/1.2 'Courier Prime',monospace;color:var(--mu);cursor:pointer;text-decoration:underline}
 .apk-later:hover{color:var(--ink)}
+
+/* Radius watch bar */
+.radiusbar{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.radiusbar .chip{padding:2px 7px;font-size:11px}
+
+/* Chronological Story Timeline (Police + Press + Forum) */
+.timeline-box{margin-top:8px;padding:8px 10px;border:1.5px solid var(--ink);background:var(--paper2)}
+.timeline-head{font:700 11px/1.2 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--red);margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(22,19,14,.25)}
+.timeline{list-style:none;margin:0;padding:0 0 0 14px;border-inline-start:2px solid var(--ink);display:grid;gap:8px}
+.tl-item{position:relative;display:grid;gap:2px}
+.tl-dot{position:absolute;inset-inline-start:-24px;top:0;width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:var(--paper);border:1.5px solid var(--ink);font-size:10px;line-height:1}
+.tl-item.police .tl-dot{border-color:var(--red);background:#fde9e5}
+.tl-item.forum .tl-dot{border-color:#2b59c3;background:#e8effd}
+.tl-item.latest .tl-dot{background:var(--red);color:var(--paper);border-color:var(--ink)}
+.tl-body{display:grid;gap:2px;min-width:0}
+.tl-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font:700 10.5px/1.2 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:.05em;color:var(--mu)}
+.tl-meta time{color:var(--ink)}
+.tl-latest{background:var(--red);color:var(--paper);padding:0 4px;font-size:9.5px}
+.tl-body a{font:600 14px/1.25 Fraunces,Georgia,serif;color:var(--ink);text-decoration:none}
+.tl-body a:hover{text-decoration:underline;text-decoration-color:var(--red)}
 
 
 

@@ -5,12 +5,14 @@ import {
   notifyViaNativeAndroid,
   syncNativeAndroidFavorites,
 } from '../androidBridge'
-import { type Area, type Areas, bounds, inside, kidsOf, labelPoint, link, norm } from '../areas'
+import { type Area, type Areas, bounds, haversineKm, inside, kidsOf, labelPoint, link, norm } from '../areas'
+import { buildBackupJson, mergeBackupState, parseBackupJson } from '../backup'
 import { toggleSavedItem } from '../bookmarks'
 import { wrapLines } from '../clipCard'
-import { clusterArticles } from '../cluster'
+import { attachForumToClusters, buildStoryTimeline, clusterArticles } from '../cluster'
+import { RSS_PRESETS, directNewsFeedsFor } from '../directNews'
 import { editionFor, wordsFor } from '../editions'
-import { localSubreddits } from '../forums'
+import { localSubreddits, regionalForumsFor } from '../forums'
 import { LruCache } from '../lru'
 import {
   type Article,
@@ -26,7 +28,9 @@ import {
   parseBingRssXml,
   parseFlashbackDate,
   parseGdeltDate,
+  parseGenericRssXml,
   parseRss2JsonPayload,
+  parseYahooRssXml,
   placeAliases,
   rankImportantForum,
   rankMostCovered,
@@ -951,5 +955,152 @@ describe('Worker SSRF redirect protection & /push/test origin guard', () => {
       {},
     )
     expect(res.status).toBe(403)
+  })
+})
+
+describe('Police GPS, Story Timeline, Radius Haversine & Custom RSS', () => {
+  it('extracts GPS coordinates from polisen.se events for radius watch', () => {
+    const raw = JSON.stringify([
+      {
+        id: 1,
+        datetime: '2026-11-22 14:10:00 +01:00',
+        name: '22 november 14:10, Brand, Stockholm',
+        summary: 'Brand i flerfamiljshus i Kista.',
+        url: '/aktuellt/handelser/2026/november/22/brand-stockholm/',
+        type: 'Brand',
+        location: { name: 'Stockholm', gps: '59.4032,17.9448' },
+      },
+    ])
+    const items = parsePolisenEventsJson(raw)
+    expect(items).toHaveLength(1)
+    expect(items[0].lat).toBeCloseTo(59.4032, 4)
+    expect(items[0].lon).toBeCloseTo(17.9448, 4)
+  })
+
+  it('computes accurate Haversine distances in km for radius watch', () => {
+    // Central Stockholm to Kista (~10.5 km)
+    const km = haversineKm(59.3293, 18.0686, 59.4032, 17.9448)
+    expect(km).toBeGreaterThan(9.5)
+    expect(km).toBeLessThan(11.5)
+  })
+
+  it('attaches matching forum threads and builds an oldest-to-newest chronological story timeline', () => {
+    const policeEvt = art('Brand i flerfamiljshus i Kista i natt', 'polisen.se', 4, { police: true })
+    const pressEvt = art('Kraftig brand i flerfamiljshus i Kista under natten', 'SVT Nyheter', 2)
+    const forumEvt = art('Tråd om brand i flerfamiljshus i Kista', 'flashback', 1, { forum: true })
+
+    const clustered = clusterArticles([pressEvt, policeEvt], 'Kista')
+    const enriched = attachForumToClusters(clustered, [forumEvt], 'Kista')
+    const timeline = buildStoryTimeline(enriched[0])
+
+    expect(timeline).toHaveLength(3)
+    expect(timeline[0].police).toBe(true)
+    expect(timeline[1].source).toBe('SVT Nyheter')
+    expect(timeline[2].forum).toBe(true)
+    expect(+timeline[0].date).toBeLessThan(+timeline[1].date)
+    expect(+timeline[1].date).toBeLessThan(+timeline[2].date)
+  })
+
+  it('parses custom user RSS 2.0 & Atom feeds and protects Worker /rss from SSRF', async () => {
+    const rssXml = `<rss version="2.0"><channel><item><title>Driftstörning på fjärrvärmen</title><link>https://kommun.se/nyhet/1</link><pubDate>Sun, 22 Nov 2026 12:00:00 GMT</pubDate><description>Planerat arbete i Kista centrum under eftermiddagen.</description></item></channel></rss>`
+    const items = parseGenericRssXml(rssXml, 'https://kommun.se/rss.xml')
+    expect(items).toHaveLength(1)
+    expect(items[0].customRss).toBe(true)
+    expect(items[0].source).toBe('📡 kommun.se')
+
+    const blocked = await worker.fetch(
+      new Request('https://newnewz-proxy.bynrnworld.workers.dev/rss?url=https%3A%2F%2F127.0.0.1%2Ffeed.xml'),
+      {},
+    )
+    expect(blocked.status).toBe(403)
+  })
+
+  it('selects free direct broadcaster & regional RSS feeds per country and exposes presets', () => {
+    const seCity: Place = {
+      lat: 59.4032,
+      lon: 17.9448,
+      cc: 'SE',
+      parts: [{ level: 'district', name: 'Kista' }, { level: 'city', name: 'Stockholm' }, { level: 'country', name: 'Sverige' }],
+    }
+    const seFeeds = directNewsFeedsFor(seCity, 0)
+    expect(seFeeds.some((f) => f.url.includes('svt.se/nyheter/lokalt/stockholm/rss.xml'))).toBe(true)
+    expect(seFeeds.some((f) => f.source === 'SVT Nyheter')).toBe(true)
+
+    const iqCity: Place = {
+      lat: 36.19,
+      lon: 44.01,
+      cc: 'IQ',
+      parts: [{ level: 'city', name: 'Erbil' }, { level: 'country', name: 'Iraq' }],
+    }
+    expect(directNewsFeedsFor(iqCity, 0).some((f) => f.source === 'Rudaw')).toBe(true)
+
+    const unknownCountry: Place = {
+      lat: 0,
+      lon: 0,
+      cc: 'ZZ',
+      parts: [{ level: 'country', name: 'Nowhere' }],
+    }
+    expect(directNewsFeedsFor(unknownCountry, 0).some((f) => f.source === 'BBC World')).toBe(true)
+    expect(directNewsFeedsFor(unknownCountry, 0).some((f) => f.source === 'Yahoo World')).toBe(true)
+    expect(RSS_PRESETS.some((p) => p.label === 'Samsung Newsroom')).toBe(true)
+    expect(RSS_PRESETS.some((p) => p.label === 'Yahoo News')).toBe(true)
+  })
+
+  it('parses Yahoo News RSS search results and unwraps Yahoo redirect URLs', () => {
+    const yahooXml = `<rss version="2.0"><channel><item><title>Storm hits Stockholm - Reuters</title><link>https://r.search.yahoo.com/_ylt=abc/RU=https%3A%2F%2Fwww.reuters.com%2Fworld%2Fstockholm-storm/RK=2/RS=xyz</link><source>Reuters</source><pubDate>Sun, 22 Nov 2026 21:00:00 GMT</pubDate><description>Heavy wind reported across Stockholm tonight.</description></item></channel></rss>`
+    const items = parseYahooRssXml(yahooXml, 'en')
+    expect(items).toHaveLength(1)
+    expect(items[0].title).toBe('Storm hits Stockholm')
+    expect(items[0].source).toBe('Reuters')
+    expect(items[0].url).toBe('https://www.reuters.com/world/stockholm-storm')
+  })
+
+  it('maps national forums & local subreddits for Iran, Greece, Jamaica, Nigeria, Thailand and blocks disallowed forum-search sites', async () => {
+    expect(localSubreddits('IR', ['Tehran', 'Iran'])).toEqual(expect.arrayContaining(['tehran', 'iran', 'NewIran']))
+    expect(regionalForumsFor('IR').map((f) => f.label)).toEqual(expect.arrayContaining(['NiniSite', 'PersianTools']))
+
+    expect(localSubreddits('GR', ['Athens', 'Greece'])).toEqual(expect.arrayContaining(['athens', 'greece']))
+    expect(regionalForumsFor('GR').map((f) => f.label)).toEqual(expect.arrayContaining(['Insomnia.gr', 'TravelStories']))
+
+    expect(localSubreddits('JM', ['Kingston', 'Jamaica'])).toEqual(expect.arrayContaining(['Jamaica']))
+    expect(regionalForumsFor('JM')).toHaveLength(1)
+
+    expect(regionalForumsFor('NG').map((f) => f.label)).toContain('Nairaland')
+    expect(regionalForumsFor('TH').map((f) => f.label)).toContain('Pantip')
+    // Automatic global fallback for any other country on Earth (e.g. Mongolia, Fiji)
+    expect(localSubreddits('MN', ['Ulaanbaatar', 'Mongolia'])).toContain('Mongolia')
+    expect(regionalForumsFor('MN')[0]?.site).toBe('tripadvisor.com')
+
+    const forbidden = await worker.fetch(
+      new Request('https://newnewz-proxy.bynrnworld.workers.dev/forum-search?site=evil.example&q=Iran'),
+      {},
+    )
+    expect(forbidden.status).toBe(403)
+  })
+
+  it('exports, validates, sanitizes, and merges NewNewz JSON backups cleanly', () => {
+    const placeA: Place = { lat: 59.33, lon: 18.07, cc: 'SE', parts: [{ level: 'city', name: 'Stockholm' }] }
+    const placeB: Place = { lat: 37.98, lon: 23.73, cc: 'GR', parts: [{ level: 'city', name: 'Athens' }] }
+    const raw = buildBackupJson({
+      favs: [placeA],
+      cats: ['Home'],
+      quiet: { Home: { on: true, from: '23:00', to: '07:00' } },
+      srcs: ['mitti.se'],
+      rssFeeds: ['https://www.svt.se/nyheter/rss.xml'],
+      saved: [],
+    })
+    const parsed = parseBackupJson(raw)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.favs).toHaveLength(1)
+    expect(parsed!.rssFeeds).toEqual(['https://www.svt.se/nyheter/rss.xml'])
+
+    const merged = mergeBackupState(
+      { favs: [placeB], cats: ['Travel'], quiet: {}, srcs: [], rssFeeds: [], saved: [] },
+      parsed!,
+    )
+    expect(merged.favs).toHaveLength(2)
+    expect(merged.cats).toEqual(['Travel', 'Home'])
+    expect(parseBackupJson('{"app":"Other"}')).toBeNull()
+    expect(parseBackupJson('not json')).toBeNull()
   })
 })

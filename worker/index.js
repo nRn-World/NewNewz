@@ -5,6 +5,7 @@ import { topicsOf } from '../src/topicRules.ts'
 const ORIGINS = {
   '/gn': 'https://news.google.com',
   '/bn': 'https://www.bing.com',
+  '/yn': 'https://news.search.yahoo.com',
   '/rd': 'https://www.reddit.com',
   '/fb': 'https://www.flashback.org',
 }
@@ -478,6 +479,30 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
     } catch { /* next */ }
     if (out.length >= 8) break
   }
+  // Also check Yahoo News RSS search for the top query so breaking stories indexed first on Yahoo trigger alerts
+  if (out.length < 10 && queries[0]) {
+    try {
+      const yr = await fetch(`https://news.search.yahoo.com/rss?p=${encodeURIComponent(queries[0])}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPush/1.0)' },
+        cf: { cacheTtl: 180, cacheEverything: true },
+        signal: AbortSignal.timeout(5500),
+      })
+      if (yr.ok) {
+        const xml = await yr.text()
+        for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+          const block = m[1]
+          const title = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/)
+          const desc = block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>|<description>([\s\S]*?)<\/description>/)
+          const link = block.match(/<link>([\s\S]*?)<\/link>/)
+          const t = (title?.[1] ?? title?.[2] ?? '').trim()
+          const d = (desc?.[1] ?? desc?.[2] ?? '').replace(/<[^>]+>/g, ' ').trim()
+          const l = (link?.[1] ?? '').trim()
+          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey)) out.push({ title: decodeEntities(t), url: articleUrl(l), kind: 'news' })
+          if (out.length >= 12) break
+        }
+      }
+    } catch { /* ignore */ }
+  }
   return out.slice(0, 12)
 }
 
@@ -802,6 +827,44 @@ export default {
       }
     }
 
+    // --- Custom user RSS/Atom feed proxy (/rss?url=...) with strict SSRF & redirect protection ---
+    if (url.pathname === '/rss' && req.method === 'GET') {
+      const targetStr = url.searchParams.get('url') ?? ''
+      let parsed
+      try {
+        parsed = new URL(targetStr)
+      } catch {
+        return new Response('Invalid URL', { status: 400, headers: cors })
+      }
+      if (!isSafePublicMetaUrl(parsed)) return new Response('Forbidden host', { status: 403, headers: cors })
+      try {
+        const r = await safeFetch(
+          parsed,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; NewNewzRssReader/1.0)',
+              Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+            },
+            cf: { cacheTtl: 120, cacheEverything: true },
+            signal: AbortSignal.timeout(7000),
+          },
+          isSafePublicMetaUrl,
+        )
+        if (!r) return new Response('Forbidden redirect', { status: 403, headers: cors })
+        if (!r.ok) return new Response('Upstream RSS error', { status: 502, headers: { ...cors, 'Cache-Control': 'no-store' } })
+        const xml = (await r.text()).slice(0, 512_000)
+        if (!/<rss\b|<channel\b|<feed\b/i.test(xml)) {
+          return new Response('Not an RSS/Atom feed', { status: 502, headers: { ...cors, 'Cache-Control': 'no-store' } })
+        }
+        return new Response(xml, {
+          status: 200,
+          headers: { ...cors, 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=120' },
+        })
+      } catch {
+        return new Response('Upstream RSS timeout', { status: 502, headers: cors })
+      }
+    }
+
     // --- Reader card metadata (/meta?url=...) with strict SSRF & redirect protection ---
     if (url.pathname === '/meta' && req.method === 'GET') {
       const targetStr = url.searchParams.get('url') ?? ''
@@ -931,11 +994,77 @@ export default {
       }
     }
 
+    // --- Global Famous National Forums Search (/forum-search?site=...&q=..., strict allowlist) ---
+    if (url.pathname === '/forum-search' && req.method === 'GET') {
+      const site = (url.searchParams.get('site') ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '')
+      const q = (url.searchParams.get('q') ?? '').trim().slice(0, 120)
+      if (!site || !q || !/^[a-z0-9.-]+(?:\/[a-z0-9._-]+)?$/i.test(site)) {
+        return new Response(JSON.stringify({ items: [] }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+      const allowedForumSites = new Set([
+        'familjeliv.se', 'sweclockers.com', 'byggahus.se',
+        'diskusjon.no', 'forum.kvinneguiden.no', 'freak.no',
+        'hardwareonline.dk', 'keskustelu.suomi24.fi', 'vauva.fi', 'ylilauta.org', 'bbs.io-tech.fi',
+        'ninisite.com', 'forum.persiantools.com', 'forum.p30world.com', 'tarfandestan.com',
+        'insomnia.gr', 'travelstories.gr', 'adslgr.com',
+        'eksisozluk.com', 'incisozluk.com.tr', 'forum.donanimhaber.com', 'technopat.net/sosyal',
+        'gutefrage.net', 'computerbase.de/forum', 'hardwareluxx.de/community',
+        'mumsnet.com/talk', 'forums.digitalspy.com', 'forums.moneysavingexpert.com', 'pistonheads.com/gassing',
+        'boards.ie', 'jeuxvideo.com/forums', 'forum.hardware.fr',
+        'forocoches.com', 'mediavida.com', 'meneame.net', 'forumfree.it', 'forum.tomshw.it',
+        'gathering.tweakers.net', 'forum.fok.nl', 'wykop.pl', 'forum.gazeta.pl',
+        'emimino.cz', 'gyakorikerdesek.hu', 'forum.softpedia.com', 'forum.hr', 'forum.klix.ba',
+        'forum.krstarica.com', 'forum.zwame.pt', 'forum.pravda.com.ua', 'pikabu.ru', 'yaplakal.com',
+        'fxp.co.il',
+        'pantip.com', 'aseannow.com', '5ch.net', 'girlschannel.net',
+        'gall.dcinside.com', 'clien.net', 'fmkorea.com', 'theqoo.net',
+        'zhihu.com', 'tieba.baidu.com', 'bbs.hupu.com',
+        'ptt.cc', 'dcard.tw', 'mobile01.com', 'lihkg.com', 'discuss.com.hk',
+        'forums.hardwarezone.com.sg', 'forum.lowyat.net', 'kaskus.co.id', 'voz.vn',
+        'quora.com', 'team-bhp.com/forum', 'indiamike.com', 'forums.whirlpool.net.au',
+        'geekzone.co.nz', 'forums.redflagdeals.com', 'city-data.com/forum',
+        'clubedohardware.com.br/forums', 'foros.3dgames.com.ar', 'capa9.net', 'forosperu.net',
+        'nairaland.com', 'kenyatalk.com', 'mybroadband.co.za/forum',
+        'io.hsoub.com', 'adslgate.com', 'tripadvisor.com',
+      ])
+      if (!allowedForumSites.has(site)) {
+        return new Response('Forbidden forum site', { status: 403, headers: cors })
+      }
+      const hostMatch = site.split('/')[0]
+      try {
+        const r = await fetch(
+          `https://www.bing.com/search?q=${encodeURIComponent(`site:${site} "${q}"`)}&format=rss`,
+          {
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            cf: { cacheTtl: 300, cacheEverything: true },
+            signal: AbortSignal.timeout(6000),
+          },
+        )
+        const xml = await r.text()
+        const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)]
+          .slice(0, 20)
+          .map((m) => {
+            const block = m[1]
+            const title = decodeEntities((block.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '').replace(/<!\[CDATA\[|\]\]>/g, '')).trim()
+            const desc = decodeEntities((block.match(/<description>([\s\S]*?)<\/description>/)?.[1] ?? '').replace(/<!\[CDATA\[|\]\]>/g, '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+            const link = (block.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? '').trim()
+            const pubDate = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1] ?? '').trim()
+            return { title, summary: desc || undefined, url: link, date: pubDate || undefined }
+          })
+          .filter((x) => x.title && x.url.toLowerCase().includes(hostMatch))
+        return new Response(JSON.stringify({ items }), {
+          headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' },
+        })
+      } catch {
+        return new Response(JSON.stringify({ items: [] }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+    }
+
     // --- Public RSS / Forum CORS proxy (edge-cached 180s across visitors) ---
     const prefix = Object.keys(ORIGINS).find((p) => url.pathname.startsWith(p + '/'))
     if (req.method !== 'GET' || !prefix) return new Response('Not found', { status: 404, headers: cors })
     try {
-      const isRss = prefix === '/gn' || prefix === '/bn'
+      const isRss = prefix === '/gn' || prefix === '/bn' || prefix === '/yn'
       const ttl = isRss ? 45 : 180 // news is what has to be fresh; forums keep 180 s to stay polite to their servers
       const edgeCache = typeof caches !== 'undefined' ? caches.default : null
       const cacheKey = edgeCache ? new Request(`${url.origin}${url.pathname}${url.search}`, { method: 'GET' }) : null

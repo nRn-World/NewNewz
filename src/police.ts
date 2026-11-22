@@ -577,6 +577,14 @@ export function parsePolisenEventsJson(rawJson: string, lang = 'sv'): Article[] 
     const date = parsePolisenDate(item.datetime ?? '')
     if (isNaN(+date)) continue
 
+    let lat: number | undefined
+    let lon: number | undefined
+    const gpsParts = item.location?.gps?.split(',').map((n) => Number(n.trim()))
+    if (gpsParts && gpsParts.length === 2 && Number.isFinite(gpsParts[0]) && Number.isFinite(gpsParts[1])) {
+      lat = gpsParts[0]
+      lon = gpsParts[1]
+    }
+
     out.push({
       url: fullUrl,
       title,
@@ -586,6 +594,7 @@ export function parsePolisenEventsJson(rawJson: string, lang = 'sv'): Article[] 
       date,
       lang,
       police: true,
+      ...(lat !== undefined && lon !== undefined ? { lat, lon } : {}),
     })
   }
   return out

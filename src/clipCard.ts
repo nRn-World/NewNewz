@@ -12,14 +12,14 @@ export function wrapLines(ctx: { measureText: (text: string) => { width: number 
   if (!words.length || maxLines <= 0) return []
   const lines: string[] = []
   let line = ''
-  let overflowed = false
+  let truncated = false
 
   for (let i = 0; i < words.length; i++) {
     const w = words[i]
     const test = line ? `${line} ${w}` : w
     if (ctx.measureText(test).width > maxWidth && line) {
-      if (lines.length === maxLines - 1) {
-        overflowed = true
+      if (lines.length >= maxLines - 1) {
+        truncated = true
         break
       }
       lines.push(line)
@@ -30,7 +30,7 @@ export function wrapLines(ctx: { measureText: (text: string) => { width: number 
   }
 
   if (line && lines.length < maxLines) {
-    if (overflowed || ctx.measureText(line).width > maxWidth) {
+    if (truncated || ctx.measureText(line).width > maxWidth) {
       let trimmed = line
       while (trimmed.length > 3 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
         trimmed = trimmed.slice(0, -1)

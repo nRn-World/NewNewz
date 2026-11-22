@@ -3,11 +3,11 @@ const CACHE = 'newnewz-v5'
 const MAX_ASSET_ENTRIES = 60
 const PRECACHE = ['./', 'manifest.webmanifest', 'favicon.svg', 'icons/icon-192.png']
 
-async function pruneAssets(cache) {
+async function trimAssetCache(cache) {
   const keys = await cache.keys()
-  const assets = keys.filter((req) => /\/assets\//.test(new URL(req.url).pathname))
-  if (assets.length > MAX_ASSET_ENTRIES) {
-    await Promise.all(assets.slice(0, assets.length - MAX_ASSET_ENTRIES).map((req) => cache.delete(req)))
+  const assetKeys = keys.filter((req) => /\/assets\//.test(new URL(req.url).pathname))
+  if (assetKeys.length > MAX_ASSET_ENTRIES) {
+    await Promise.all(assetKeys.slice(0, assetKeys.length - MAX_ASSET_ENTRIES).map((req) => cache.delete(req)))
   }
 }
 
@@ -57,7 +57,7 @@ self.addEventListener('fetch', (e) => {
         const net = fetch(e.request)
           .then((r) => {
             if (r.ok) {
-              cache.put(e.request, r.clone()).then(() => pruneAssets(cache)).catch(() => {})
+              cache.put(e.request, r.clone()).then(() => trimAssetCache(cache))
             }
             return r
           })

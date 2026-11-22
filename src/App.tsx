@@ -10,8 +10,10 @@ import {
   shouldAutoPromptInstall,
 } from './androidBridge'
 import { norm } from './areas'
-import { type SavedArticle, loadSaved, toggleSavedItem } from './bookmarks'
+import { buildBackupJson, downloadBackupFile, mergeBackupState, parseBackupJson } from './backup'
+import { type SavedArticle, loadSaved, persistSaved, toggleSavedItem } from './bookmarks'
 import { exportClipCard } from './clipCard'
+import { attachForumToClusters, buildStoryTimeline } from './cluster'
 import { fullDate, mediumDate, timeAgo } from './dates'
 import FavsPanel from './FavsPanel'
 import { Flag } from './Flags'
@@ -29,6 +31,7 @@ import {
   loadFavs,
   loadLast,
   loadQuiet,
+  loadRssFeeds,
   loadSources,
   news,
   rankImportantForum,
@@ -38,6 +41,7 @@ import {
   saveFavs,
   saveLast,
   saveQuiet,
+  saveRssFeeds,
   saveSources,
   search,
   showAppNotification,
@@ -89,10 +93,12 @@ export default function App() {
   const [newsFilter, setNewsFilter] = useState('')
   const [sortBy, setSortBy] = useState<'new' | 'hot'>('new')
   const [months, setMonths] = useState(0)
+  const [radiusKm, setRadiusKm] = useState(0)
   const [mine, setMine] = useState<Article[] | null>(null)
   const [mineBusy, setMineBusy] = useState(false)
   const [quiet, setQuiet] = useState(loadQuiet)
   const [srcs, setSrcs] = useState<string[]>(loadSources)
+  const [rssFeeds, setRssFeeds] = useState<string[]>(loadRssFeeds)
   const [copied, setCopied] = useState(false)
   const [offline, setOffline] = useState(false)
   const [cats, setCats] = useState<string[]>(loadCats)
@@ -138,6 +144,7 @@ export default function App() {
     setNewsFilter('')
     setSortBy('new')
     setMonths(0)
+    setRadiusKm(0)
     setExpandedAlso({})
     setReaderOpen({})
     setSf('')
@@ -163,7 +170,19 @@ export default function App() {
     setNewsFilter((cur) => (norm(cur) === norm(pinName) ? '' : pinName))
   }, [])
 
-  const { boxRef, area, areaProgress, cancelAreas, heatEntries, pickOnGlobe, focusCrumb, focusStreet, updateHeat, resetGlobe } = useGlobe({
+  const {
+    boxRef,
+    area,
+    areaProgress,
+    cancelAreas,
+    heatEntries,
+    pickOnGlobe,
+    focusCrumb,
+    focusStreet,
+    updateHeat,
+    updateRadius,
+    resetGlobe,
+  } = useGlobe({
     lang,
     mapMode,
     sheetSnap,
@@ -198,6 +217,7 @@ export default function App() {
       setNewsFilter('')
       setSortBy('new')
       setMonths(0)
+      setRadiusKm(0)
       setOnly(null)
       setExpandedAlso({})
       setReaderOpen({})
@@ -354,7 +374,7 @@ export default function App() {
   useEffect(() => {
     if (!place || tab === 'favs' || tab === 'saved') return
     const ctrl = new AbortController()
-    const key = `${place.lat},${place.lon},${level},${lang},${tab},${months}`
+    const key = `${place.lat},${place.lon},${level},${lang},${tab},${months},${radiusKm},${rssFeeds.length}`
     const fresh = shown.current !== key
     shown.current = key
     let ver = 0
@@ -376,7 +396,6 @@ export default function App() {
           }
         })
         setStamp(new Date())
-        setBusy(false)
         setOffline(false)
         if (tab === 'news' && months === 0) saveLast(`${label(place)}|${level}|${lang}`, articles)
       }
@@ -391,7 +410,7 @@ export default function App() {
       const out =
         tab === 'forum'
           ? await forum(place, level, 100, (r) => r.articles.length && void show(r), ctrl.signal, setFeedPct)
-          : await news(place, level, 100, fresh, (r) => r.articles.length && void show(r), months, ctrl.signal, setFeedPct)
+          : await news(place, level, 100, fresh, (r) => r.articles.length && void show(r), months, ctrl.signal, setFeedPct, radiusKm)
       await show(out)
     }
 
@@ -410,7 +429,7 @@ export default function App() {
         if (!ctrl.signal.aborted) setBusy(false)
       })
     return () => ctrl.abort()
-  }, [place, level, lang, tick, tab, months])
+  }, [place, level, lang, tick, tab, months, radiusKm, rssFeeds.length])
 
   // Automatically fetch important Forum threads when a home address / street has 0 or few direct news articles
   const spotKey = place ? `${place.lat.toFixed(4)},${place.lon.toFixed(4)},${level},${lang}` : ''
@@ -440,6 +459,11 @@ export default function App() {
   useEffect(() => {
     updateHeat(res?.articles, tab === 'news', streetList)
   }, [res, tab, streetList, updateHeat])
+
+  // Draw optional radius watch circle on the 3D globe
+  useEffect(() => {
+    updateRadius(place && tab === 'news' ? place : null, radiusKm)
+  }, [place, tab, radiusKm, updateRadius])
 
   // Poll twice a minute while visible
   useEffect(() => {
@@ -699,7 +723,11 @@ export default function App() {
   const savedUrlSet = useMemo(() => new Set(saved.map((s) => s.url)), [saved])
 
   const visibleArticles = useMemo(() => {
-    const base = (onlyNew ? only!.items : res?.articles) ?? []
+    const rawBase = (onlyNew ? only!.items : res?.articles) ?? []
+    const base =
+      tab === 'news' && activeSpotItems?.length
+        ? attachForumToClusters(rawBase, activeSpotItems, res?.scope ?? '')
+        : rawBase
     const qNorm = norm(newsFilter)
     const filtered = base.filter((a) => {
       if (topic && tab === 'news' && !matchesTopic(topicsOf(`${a.title} ${a.orig ?? ''}`, a.police), topic)) return false
@@ -714,7 +742,7 @@ export default function App() {
     }
     // Strict chronological newest-first order (#01 is always the latest item)
     return [...filtered].sort((a, b) => +b.date - +a.date)
-  }, [onlyNew, only, res, newsFilter, topic, tab, sortBy])
+  }, [onlyNew, only, res, activeSpotItems, newsFilter, topic, tab, sortBy])
 
   const nearbyScope = res?.articles.find((a) => a.exactMatch === false)?.scopeTag
 
@@ -866,6 +894,23 @@ export default function App() {
             setQuietAndSave={(n) => { setQuiet(n); saveQuiet(n) }}
             srcs={srcs}
             setSrcsAndSave={(n) => { setSrcs(n); saveSources(n) }}
+            rssFeeds={rssFeeds}
+            setRssFeedsAndSave={(n) => { setRssFeeds(n); saveRssFeeds(n) }}
+            onExportBackup={() =>
+              downloadBackupFile(buildBackupJson({ favs, cats, quiet, srcs, rssFeeds, saved }))
+            }
+            onImportBackup={(rawText) => {
+              const incoming = parseBackupJson(rawText)
+              if (!incoming) return false
+              const merged = mergeBackupState({ favs, cats, quiet, srcs, rssFeeds, saved }, incoming)
+              commitFavs(merged.favs)
+              setCats(merged.cats); saveCats(merged.cats)
+              setQuiet(merged.quiet); saveQuiet(merged.quiet)
+              setSrcs(merged.srcs); saveSources(merged.srcs)
+              setRssFeeds(merged.rssFeeds); saveRssFeeds(merged.rssFeeds)
+              setSaved(merged.saved); persistSaved(merged.saved)
+              return true
+            }}
             unread={unread}
             perm={perm}
             onEnableNotify={enableNotifications}
@@ -984,14 +1029,54 @@ export default function App() {
             )}
 
             {tab === 'news' && <TimeTravel months={months} setMonths={setMonths} t={t} />}
+            {tab === 'news' && months === 0 && (
+              <div className="radiusbar" role="group" aria-label={t('radius')}>
+                <span>{t('radius')}:</span>
+                {[0, 1, 5, 15].map((km) => (
+                  <button
+                    key={km}
+                    type="button"
+                    className={radiusKm === km ? 'chip on' : 'chip'}
+                    aria-pressed={radiusKm === km}
+                    onClick={() => setRadiusKm(km)}
+                  >
+                    {km === 0 ? t('radiusExact') : `${km} km`}
+                  </button>
+                ))}
+              </div>
+            )}
+            {tab === 'news' && radiusKm > 0 && months === 0 && <p className="note">{t('radiusNote', { km: String(radiusKm) })}</p>}
             {months > 0 && <p className="note">{t('archiveNote', { when: t(months === 1 ? 't1m' : months === 3 ? 't3m' : months === 6 ? 't6m' : 't1y').toLowerCase() })}</p>}
             {offline && <p className="offline">{t('offline')}</p>}
             {tab === 'news' && nearbyScope && <p className="note">{t('nearbyNote', { p: res?.scope ?? '', scope: nearbyScope })}</p>}
-            {busy && <ProgressBox key={`feed-${place.lat}-${place.lon}-${level}-${tab}-${months}`} label={t('loading')} pct={feedPct} estTotalSec={5} t={t} />}
+            {busy && (
+              <ProgressBox
+                key={`feed-${place.lat}-${place.lon}-${level}-${tab}-${months}-${radiusKm}`}
+                label={t('loading')}
+                detail={res?.articles.length ? `${res.articles.length}/100` : undefined}
+                pct={feedPct}
+                estTotalSec={4}
+                t={t}
+              />
+            )}
             {stamp && !busy && (
-              <p className="live">
-                {t('updated', { time: stamp.toLocaleTimeString(lang, { timeStyle: 'short' }) })} · {visibleArticles.length}/{res?.articles.length ?? 0}
-              </p>
+              <div className="live-row">
+                <p className="live">
+                  {t('updated', { time: stamp.toLocaleTimeString(lang, { timeStyle: 'short' }) })} · {visibleArticles.length}/{res?.articles.length ?? 0}
+                </p>
+                <button
+                  type="button"
+                  className="refreshbtn"
+                  onClick={() => {
+                    shown.current = ''
+                    setTick((n) => n + 1)
+                  }}
+                  title={t('refreshNow')}
+                  aria-label={t('refreshNow')}
+                >
+                  ↻
+                </button>
+              </div>
             )}
             {onlyNew && (
               <p className="note">
@@ -1151,18 +1236,38 @@ export default function App() {
                         </div>
                       )}
 
-                      {isExp && a.also && (
-                        <ul className="also-list">
-                          {a.also.map((sub) => (
-                            <li key={sub.url}>
-                              <a href={sub.url} target="_blank" rel="noopener noreferrer" title={sub.orig && sub.orig !== sub.title ? sub.orig : undefined}>
-                                {sub.title}
-                              </a>
-                              <span>{sub.source} · {ago(sub.date, lang)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
+                      {isExp && a.also && (() => {
+                        const timeline = buildStoryTimeline(a)
+                        return (
+                          <div className="timeline-box">
+                            <div className="timeline-head">{t('timeline')} ({timeline.length})</div>
+                            <ol className="timeline">
+                              {timeline.map((step, idx) => {
+                                const isNewest = idx === timeline.length - 1
+                                const clock = step.date.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' })
+                                const kindCls = step.police ? 'police' : step.forum ? 'forum' : 'press'
+                                return (
+                                  <li key={step.url} className={`tl-item ${kindCls}${isNewest ? ' latest' : ''}`}>
+                                    <span className="tl-dot" aria-hidden="true">
+                                      {step.police ? '🛡' : step.forum ? '💬' : '•'}
+                                    </span>
+                                    <div className="tl-body">
+                                      <div className="tl-meta">
+                                        <time dateTime={step.date.toISOString()}>{clock}</time>
+                                        <span>· {step.source}</span>
+                                        {isNewest && <b className="tl-latest">{t('latest')}</b>}
+                                      </div>
+                                      <a href={step.url} target="_blank" rel="noopener noreferrer" title={step.orig && step.orig !== step.title ? step.orig : undefined}>
+                                        {step.title}
+                                      </a>
+                                    </div>
+                                  </li>
+                                )
+                              })}
+                            </ol>
+                          </div>
+                        )
+                      })()}
                     </div>
                   </li>
                 )

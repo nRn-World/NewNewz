@@ -14,9 +14,8 @@ import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowInsets;
-import android.widget.FrameLayout;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
@@ -27,6 +26,9 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+
+import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -34,14 +36,13 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private static final String HOME_URL = "https://nrnworld.one/NewNewz/";
     private static final int REQ_NOTIFICATIONS = 1001;
     private static final int REQ_LOCATION = 1002;
+    private static final int MAX_FETCH_BYTES = 4 * 1024 * 1024;
     private static final String PREF_ASKED_NOTIF = "asked_notif_once";
-    private static final int MAX_FETCH_BYTES = 3 * 1024 * 1024;
 
     private WebView webView;
     private String pendingGeoOrigin;
@@ -103,10 +104,20 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        if (webView != null) {
+            webView.onPause();
+            webView.pauseTimers();
+        }
+        super.onPause();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         if (webView != null) {
             webView.onResume();
+            webView.resumeTimers();
         }
         pushPermStateToJs();
         long now = System.currentTimeMillis();
@@ -122,14 +133,6 @@ public class MainActivity extends Activity {
             t.setDaemon(true);
             t.start();
         }
-    }
-
-    @Override
-    protected void onPause() {
-        if (webView != null) {
-            webView.onPause();
-        }
-        super.onPause();
     }
 
     /**
@@ -204,13 +207,13 @@ public class MainActivity extends Activity {
                 if (request != null && request.isForMainFrame()) {
                     String offlineHtml = "<!doctype html><html><head><meta charset='utf-8'>"
                             + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                            + "<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#14110c;color:#16130e;font-family:Georgia,serif;padding:24px}"
-                            + ".card{max-width:380px;background:#efe6cf;border:2px solid #16130e;box-shadow:6px 6px 0 #c8321e;padding:24px;text-align:center}"
-                            + "h1{margin:0 0 8px;font-size:32px}p{margin:0 0 18px;font-family:monospace;font-size:14px;color:#5a4e3c}"
-                            + "a{display:inline-block;padding:10px 18px;background:#c8321e;color:#fff;text-decoration:none;border:2px solid #16130e;font-family:monospace;font-weight:700}</style>"
-                            + "</head><body><div class='card'><h1>NewNewz</h1>"
-                            + "<p>No internet connection. Check your connection and try again.</p>"
-                            + "<a href='" + HOME_URL + "'>Retry</a></div></body></html>";
+                            + "<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#14110c;color:#efe6cf;"
+                            + "font-family:Georgia,serif;padding:24px;text-align:center}.card{max-width:360px;background:#efe6cf;color:#16130e;"
+                            + "border:2px solid #16130e;box-shadow:6px 6px 0 #c8321e;padding:24px}h1{margin:0 0 8px;font-size:32px}"
+                            + "p{margin:0 0 18px;font:14px/1.45 monospace;color:#6d6451}button{background:#c8321e;color:#fff;border:2px solid #16130e;"
+                            + "padding:10px 18px;font:700 14px monospace;cursor:pointer}</style></head><body>"
+                            + "<div class='card'><h1>NewNewz</h1><p>Offline — unable to reach nrnworld.one right now.</p>"
+                            + "<button onclick=\"location.href='" + HOME_URL + "'\">Retry</button></div></body></html>";
                     view.loadDataWithBaseURL(HOME_URL, offlineHtml, "text/html", "UTF-8", null);
                 }
             }

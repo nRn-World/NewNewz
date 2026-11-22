@@ -37,6 +37,11 @@ const en: D = {
   apkWebInstallBtn: '⚡ Quick install via browser',
   apkAfterHint: 'Downloading NewNewz.apk! Open the downloaded file, tap Install, and star ★ your favourite places to receive real push alerts.',
   apkLater: 'Not now',
+  timeline: 'Timeline', latest: 'Latest',
+  radius: 'Radius', radiusExact: 'Exact', myRss: 'Custom RSS feeds', addRss: 'Paste RSS/Atom URL (https://…)',
+  radiusNote: 'Including GPS-tagged alerts within {km} km.',
+  backupTitle: 'Backup & sync devices', exportBtn: '⬇ Export backup', importBtn: '⬆ Import backup',
+  importOk: 'Backup restored!', importErr: 'Invalid backup file.', refreshNow: 'Refresh now',
 }
 
 const sv: D = {
@@ -73,6 +78,11 @@ const sv: D = {
   apkWebInstallBtn: '⚡ Snabbinstallera via webbläsaren',
   apkAfterHint: 'Nedladdningen av NewNewz.apk har startat! Öppna filen i nedladdningar, tryck Installera och spara sedan dina favoritplatser med ★ för att få notiser.',
   apkLater: 'Inte nu',
+  timeline: 'Tidslinje', latest: 'Senaste',
+  radius: 'Radie', radiusExact: 'Exakt', myRss: 'Egna RSS-flöden', addRss: 'Klistra in RSS/Atom-länk (https://…)',
+  radiusNote: 'Inkluderar GPS-taggade händelser inom {km} km.',
+  backupTitle: 'Backup & flytta enhet', exportBtn: '⬇ Exportera backup', importBtn: '⬆ Importera backup',
+  importOk: 'Backup återställd!', importErr: 'Ogiltig backup-fil.', refreshNow: 'Uppdatera nu',
 }
 
 const tr_: D = {
@@ -109,6 +119,11 @@ const tr_: D = {
   apkWebInstallBtn: '⚡ Tarayıcı üzerinden hızlı yükle',
   apkAfterHint: 'NewNewz.apk indiriliyor! İndirilen dosyayı açıp Yükle’ye dokunun, ardından bildirim almak için favori yerlerinizi ★ ile kaydedin.',
   apkLater: 'Şimdi değil',
+  timeline: 'Zaman çizelgesi', latest: 'En yeni',
+  radius: 'Yarıçap', radiusExact: 'Tam konum', myRss: 'Özel RSS akışları', addRss: 'RSS/Atom bağlantısı yapıştır (https://…)',
+  radiusNote: '{km} km içindeki GPS etiketli bildirimler dahil.',
+  backupTitle: 'Yedekle ve cihaz aktar', exportBtn: '⬇ Yedeği dışa aktar', importBtn: '⬆ Yedeği içe aktar',
+  importOk: 'Yedek geri yüklendi!', importErr: 'Geçersiz yedek dosyası.', refreshNow: 'Şimdi yenile',
 }
 
 const ar: D = {
@@ -145,6 +160,11 @@ const ar: D = {
   apkWebInstallBtn: '⚡ تثبيت سريع عبر المتصفح',
   apkAfterHint: 'بدأ تنزيل NewNewz.apk! افتح الملف واضغط تثبيت، ثم احفظ أماكنك المفضلة بعلامة ★ لتلقي الإشعارات.',
   apkLater: 'ليس الآن',
+  timeline: 'الخط الزمني', latest: 'الأحدث',
+  radius: 'النطاق', radiusExact: 'دقيق', myRss: 'خلاصات RSS الخاصة', addRss: 'ألصق رابط RSS/Atom (https://…)',
+  radiusNote: 'يشمل التنبيهات المحددة بـ GPS ضمن {km} كم.',
+  backupTitle: 'نسخ احتياطي ونقل الأجهزة', exportBtn: '⬇ تصدير النسخة', importBtn: '⬆ استيراد النسخة',
+  importOk: 'تمت استعادة النسخة الاحتياطية!', importErr: 'ملف نسخ احتياطي غير صالح.', refreshNow: 'تحديث الآن',
 }
 
 const es: D = {
@@ -181,6 +201,11 @@ const es: D = {
   apkWebInstallBtn: '⚡ Instalación rápida desde el navegador',
   apkAfterHint: '¡Descargando NewNewz.apk! Abre el archivo descargado, pulsa Instalar y guarda tus lugares favoritos con ★ para recibir alertas.',
   apkLater: 'Ahora no',
+  timeline: 'Cronología', latest: 'Último',
+  radius: 'Radio', radiusExact: 'Exacto', myRss: 'Fuentes RSS propias', addRss: 'Pega un enlace RSS/Atom (https://…)',
+  radiusNote: 'Incluye avisos con GPS dentro de {km} km.',
+  backupTitle: 'Copia y sincronización', exportBtn: '⬇ Exportar copia', importBtn: '⬆ Importar copia',
+  importOk: '¡Copia restaurada!', importErr: 'Archivo de copia no válido.', refreshNow: 'Actualizar ahora',
 }
 
 const fr: D = {
@@ -217,6 +242,11 @@ const fr: D = {
   apkWebInstallBtn: '⚡ Installation rapide via le navigateur',
   apkAfterHint: 'Téléchargement de NewNewz.apk lancé ! Ouvrez le fichier, appuyez sur Installer puis ajoutez vos lieux favoris avec ★ pour recevoir les alertes.',
   apkLater: 'Pas maintenant',
+  timeline: 'Chronologie', latest: 'Dernier',
+  radius: 'Rayon', radiusExact: 'Exact', myRss: 'Flux RSS personnalisés', addRss: 'Coller un lien RSS/Atom (https://…)',
+  radiusNote: 'Inclut les alertes GPS dans un rayon de {km} km.',
+  backupTitle: 'Sauvegarde et transfert', exportBtn: '⬇ Exporter', importBtn: '⬆ Importer',
+  importOk: 'Sauvegarde restaurée !', importErr: 'Fichier de sauvegarde invalide.', refreshNow: 'Actualiser',
 }
 
 const de: D = {
@@ -253,6 +283,11 @@ const de: D = {
   apkWebInstallBtn: '⚡ Schnellinstallation über den Browser',
   apkAfterHint: 'Download von NewNewz.apk gestartet! Öffne die Datei, tippe auf Installieren und markiere deine Favoriten mit ★ für Push-Mitteilungen.',
   apkLater: 'Nicht jetzt',
+  timeline: 'Zeitverlauf', latest: 'Aktuell',
+  radius: 'Radius', radiusExact: 'Exakt', myRss: 'Eigene RSS-Feeds', addRss: 'RSS/Atom-Link einfügen (https://…)',
+  radiusNote: 'Einschließlich GPS-Meldungen im Umkreis von {km} km.',
+  backupTitle: 'Backup & Gerätewechsel', exportBtn: '⬇ Backup exportieren', importBtn: '⬆ Backup importieren',
+  importOk: 'Backup wiederhergestellt!', importErr: 'Ungültige Backup-Datei.', refreshNow: 'Jetzt aktualisieren',
 }
 
 // Kurmancî (Latin script)
@@ -290,6 +325,11 @@ const ku: D = {
   apkWebInstallBtn: '⚡ Bi rêya gerokê zû saz bike',
   apkAfterHint: 'NewNewz.apk tê daxistin! Pelê daxistî veke, li Saz bike bitikîne û cihên xwe yên bijarte bi ★ tomar bike da ku agahdariyan bistînî.',
   apkLater: 'Ne niha',
+  timeline: 'Rêzika demê', latest: 'Herî nû',
+  radius: 'Nîvçap', radiusExact: 'Rast', myRss: 'Çavkaniyên RSS ên taybet', addRss: 'Girêdana RSS/Atom pêveke (https://…)',
+  radiusNote: 'Bûyerên bi GPS di nav {km} km de jî tê de ne.',
+  backupTitle: 'Hilanîn û veguhastin', exportBtn: '⬇ Derketin (Backup)', importBtn: '⬆ Têketin (Backup)',
+  importOk: 'Hilanîn hat vegerandin!', importErr: 'Pelê backupê nederbasdar e.', refreshNow: 'Niha nû bike',
 }
 
 export const EXTRA: Record<Lang, D> = { en, sv, tr: tr_, ar, es, fr, de, ku }

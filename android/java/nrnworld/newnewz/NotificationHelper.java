@@ -26,7 +26,7 @@ public final class NotificationHelper {
                 "NewNewz Alerts",
                 NotificationManager.IMPORTANCE_HIGH
         );
-        ch.setDescription("Notifications for breaking local news, official police updates, and forum posts in your saved places");
+        ch.setDescription("Notifications for new local news, official police updates, and forum posts in your favourites");
         ch.enableVibration(true);
         ch.setVibrationPattern(new long[]{0L, 180L, 80L, 180L});
         ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);

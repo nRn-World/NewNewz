@@ -13,12 +13,19 @@ function allowedOrigins() {
   return [...DEFAULT_ALLOWED, ...extra]
 }
 
+function isOriginAllowed(origin, allowed) {
+  if (!origin) return true
+  if (allowed.includes(origin)) return true
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true
+  return /^https:\/\/([a-z0-9-]+\.)*nrnworld\.one$/i.test(origin)
+}
+
 export default async function handler(req, res) {
   const allowed = allowedOrigins()
   const origin = req.headers.origin ?? ''
-  const isAllowed = !origin || allowed.includes(origin)
+  const isAllowed = isOriginAllowed(origin, allowed)
 
-  res.setHeader('Access-Control-Allow-Origin', allowed.includes(origin) ? origin : allowed[0])
+  res.setHeader('Access-Control-Allow-Origin', origin && isAllowed ? origin : allowed[0])
   res.setHeader('Vary', 'Origin')
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
 

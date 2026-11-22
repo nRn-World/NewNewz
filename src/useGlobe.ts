@@ -49,6 +49,7 @@ export function useGlobe({
   const spinRef = useRef(true)
   const curRef = useRef<Cur | null>(null)
   const pinsRef = useRef<StoryPin[]>([])
+  const radiusRef = useRef<{ lon: number; lat: number; km: number } | null>(null)
   const activePinRef = useRef(activePinName)
   const hovRef = useRef<number | string | undefined>(undefined)
   const seqRef = useRef(0)
@@ -116,6 +117,22 @@ export function useGlobe({
     activePinRef.current = activePinName
     drawPins(pinsRef.current, activePinName)
   }, [activePinName, drawPins])
+
+  const drawRadius = useCallback((place: Place | null, radiusKm: number) => {
+    radiusRef.current = place && radiusKm > 0 ? { lon: place.lon, lat: place.lat, km: radiusKm } : null
+    const m = mapRef.current
+    const src = m?.getSource('radius-circle') as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+    if (!radiusRef.current) {
+      src.setData({ type: 'FeatureCollection', features: [] } as never)
+      return
+    }
+    const { lon, lat, km } = radiusRef.current
+    src.setData({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: { km }, geometry: circle([lon, lat], km * 1000, 64) }],
+    } as never)
+  }, [])
 
   const drawPieces = useCallback((c: Cur) => {
     const m = mapRef.current
@@ -222,8 +239,39 @@ export function useGlobe({
         })
       }
 
+      if (!m.getSource('radius-circle')) {
+        m.addSource('radius-circle', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+        m.addLayer({
+          id: 'radius-fill',
+          type: 'fill',
+          source: 'radius-circle',
+          paint: {
+            'fill-color': '#c8321e',
+            'fill-opacity': 0.1,
+          },
+        })
+        m.addLayer({
+          id: 'radius-line',
+          type: 'line',
+          source: 'radius-circle',
+          paint: {
+            'line-color': '#ff4b33',
+            'line-width': 2.5,
+            'line-dasharray': [3, 2],
+            'line-opacity': 0.95,
+          },
+        })
+      }
+
       if (curRef.current) drawPieces(curRef.current)
       if (pinsRef.current.length) drawPins(pinsRef.current)
+      if (radiusRef.current) {
+        const { lon, lat, km } = radiusRef.current
+        ;(m.getSource('radius-circle') as maplibregl.GeoJSONSource | undefined)?.setData({
+          type: 'FeatureCollection',
+          features: [{ type: 'Feature', properties: { km }, geometry: circle([lon, lat], km * 1000, 64) }],
+        } as never)
+      }
     },
     [drawPieces, drawPins],
   )
@@ -453,6 +501,8 @@ export function useGlobe({
     const emptyFc = { type: 'FeatureCollection', features: [] } as never
     ;(m.getSource('areas') as maplibregl.GeoJSONSource | undefined)?.setData(emptyFc)
     ;(m.getSource('area-names') as maplibregl.GeoJSONSource | undefined)?.setData(emptyFc)
+    ;(m.getSource('radius-circle') as maplibregl.GeoJSONSource | undefined)?.setData(emptyFc)
+    radiusRef.current = null
     m.getCanvas().style.cursor = ''
 
     spinRef.current = false
@@ -632,6 +682,7 @@ export function useGlobe({
     focusCrumb,
     focusStreet,
     updateHeat,
+    updateRadius: drawRadius,
     resetGlobe,
   }
 }

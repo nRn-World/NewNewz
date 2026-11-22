@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { canUseNotifications, isStandaloneApp } from './androidBridge'
 import Compare from './Compare'
+import { RSS_PRESETS } from './directNews'
 import type { Lang } from './i18n'
 import { type Place, type Quiet, QUIET0, getWorkerUrl, label, search, sendTestPush, setWorkerUrl } from './lib'
 import { TOPICS } from './topics'
@@ -17,6 +18,10 @@ type Props = {
   setQuietAndSave: (next: Record<string, Quiet>) => void
   srcs: string[]
   setSrcsAndSave: (next: string[]) => void
+  rssFeeds: string[]
+  setRssFeedsAndSave: (next: string[]) => void
+  onExportBackup: () => void
+  onImportBackup: (rawJson: string) => boolean
   unread: Record<string, number>
   perm: string
   onEnableNotify: () => void
@@ -38,6 +43,10 @@ export default function FavsPanel({
   setQuietAndSave,
   srcs,
   setSrcsAndSave,
+  rssFeeds,
+  setRssFeedsAndSave,
+  onExportBackup,
+  onImportBackup,
   unread,
   perm,
   onEnableNotify,
@@ -59,10 +68,13 @@ export default function FavsPanel({
   const [cmpSel, setCmpSel] = useState<string[]>([])
   const [cmpOpen, setCmpOpen] = useState(false)
   const [srcDraft, setSrcDraft] = useState('')
+  const [rssDraft, setRssDraft] = useState('')
   const [addrQuery, setAddrQuery] = useState('')
   const [addrHits, setAddrHits] = useState<Place[]>([])
   const [addrBusy, setAddrBusy] = useState(false)
   const [testState, setTestState] = useState<'idle' | 'sending' | 'done'>('idle')
+  const [backupMsg, setBackupMsg] = useState<'idle' | 'ok' | 'err'>('idle')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isIosBrowser =
     typeof navigator !== 'undefined' &&
@@ -164,6 +176,34 @@ export default function FavsPanel({
   }
 
   const delSource = (d: string) => setSrcsAndSave(srcs.filter((x) => x !== d))
+
+  const addRssFeed = () => {
+    const raw = rssDraft.trim()
+    if (!raw) return
+    const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+    try {
+      const parsed = new URL(normalized)
+      if (parsed.protocol !== 'https:' || !parsed.hostname.includes('.') || rssFeeds.includes(parsed.href)) {
+        setRssDraft('')
+        return
+      }
+      setRssFeedsAndSave([...rssFeeds, parsed.href])
+      setRssDraft('')
+    } catch {
+      setRssDraft('')
+    }
+  }
+
+  const delRssFeed = (u: string) => setRssFeedsAndSave(rssFeeds.filter((x) => x !== u))
+
+  const rssHost = (u: string) => {
+    try {
+      const parsed = new URL(u)
+      return `${parsed.hostname.replace(/^www\./, '')}${parsed.pathname.length > 1 ? parsed.pathname.slice(0, 18) : ''}`
+    } catch {
+      return u
+    }
+  }
 
   /** Pointer-based drag (works with mouse and touch): touch starts from `.grip` so the list still scrolls smoothly. */
   const startDrag = (e: React.PointerEvent, f: Place) => {
@@ -490,6 +530,69 @@ export default function FavsPanel({
         >
           <input value={srcDraft} onChange={(e) => setSrcDraft(e.target.value)} placeholder={t('addSource')} aria-label={t('addSource')} />
         </form>
+        <h4 style={{ marginTop: 8 }}>📡 {t('myRss')}</h4>
+        {rssFeeds.length > 0 && (
+          <div className="row">
+            {rssFeeds.map((u) => (
+              <span key={u} className="srcchip" title={u}>
+                <span style={{ padding: '2px 6px' }}>{rssHost(u)}</span>
+                <button type="button" onClick={() => delRssFeed(u)} aria-label={`${t('removeSource')} ${u}`}>
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <form
+          className="row"
+          onSubmit={(e) => {
+            e.preventDefault()
+            addRssFeed()
+          }}
+        >
+          <input value={rssDraft} onChange={(e) => setRssDraft(e.target.value)} placeholder={t('addRss')} aria-label={t('addRss')} />
+          <button type="submit">＋</button>
+        </form>
+        <div className="chips">
+          {RSS_PRESETS.filter((p) => !rssFeeds.includes(p.url)).map((p) => (
+            <button
+              key={p.url}
+              type="button"
+              className="chip add"
+              style={{ padding: '2px 6px', fontSize: 11 }}
+              onClick={() => setRssFeedsAndSave([...rssFeeds, p.url])}
+            >
+              ＋ {p.label}
+            </button>
+          ))}
+        </div>
+        <h4 style={{ marginTop: 8 }}>💾 {t('backupTitle')}</h4>
+        <div className="row">
+          <button type="button" className="chip" style={{ padding: '4px 9px' }} onClick={onExportBackup}>
+            {t('exportBtn')}
+          </button>
+          <button type="button" className="chip" style={{ padding: '4px 9px' }} onClick={() => fileInputRef.current?.click()}>
+            {t('importBtn')}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (!file) return
+              void file.text().then((txt) => {
+                const ok = onImportBackup(txt)
+                setBackupMsg(ok ? 'ok' : 'err')
+                setTimeout(() => setBackupMsg('idle'), 3500)
+              })
+            }}
+          />
+          {backupMsg === 'ok' && <span className="muted small">✓ {t('importOk')}</span>}
+          {backupMsg === 'err' && <span className="err small">{t('importErr')}</span>}
+        </div>
         <h4 style={{ marginTop: 8 }}>{t('workerLabel')}</h4>
         <form
           className="row"

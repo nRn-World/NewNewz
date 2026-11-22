@@ -2,7 +2,15 @@ import type { Article } from './lib'
 import { norm } from './areas'
 import { STOP } from './topics'
 
-export type RelatedItem = { url: string; title: string; source: string; date: Date; orig?: string }
+export type RelatedItem = {
+  url: string
+  title: string
+  source: string
+  date: Date
+  orig?: string
+  police?: boolean
+  forum?: boolean
+}
 
 const WINDOW_MS = 48 * 3600 * 1000 // 48 hours
 const SUFFIX_RE = /(?:arna|erna|orna|ningen|ningar|en|et|na|ar|er|or|es|ed|ing|lar|ler|da|de|ta|te)$/u
@@ -63,7 +71,15 @@ export function clusterArticles(articles: Article[], scope = ''): Article[] {
       if (art.police) match.lead.police = true
       if (!match.urls.has(art.url)) {
         match.urls.add(art.url)
-        match.also.push({ url: art.url, title: art.title, source: art.source, date: art.date, orig: art.orig })
+        match.also.push({
+          url: art.url,
+          title: art.title,
+          source: art.source,
+          date: art.date,
+          orig: art.orig,
+          ...(art.police ? { police: true } : {}),
+          ...(art.forum ? { forum: true } : {}),
+        })
         if (match.tokens.size < 10) for (const t of toks) match.tokens.add(t)
       }
     } else {
@@ -78,4 +94,68 @@ export function clusterArticles(articles: Article[], scope = ''): Article[] {
   }
 
   return clusters.map((c) => (c.also.length ? { ...c.lead, also: c.also } : c.lead))
+}
+
+/**
+ * Attaches matching local forum discussions (within 48h) onto clustered news stories so users can inspect
+ * police, press, and community forum coverage on one unified chronological timeline.
+ */
+export function attachForumToClusters(articles: Article[], forumThreads: Article[], scope = ''): Article[] {
+  if (!articles.length || !forumThreads.length) return articles
+  const scopeTokens = new Set(norm(scope).split(' ').filter((w) => w.length >= 3).map(stemToken))
+  const threadTokens = forumThreads.map((t) => ({
+    item: t,
+    tokens: storyTokens(t.orig ?? t.title, scopeTokens),
+  }))
+
+  return articles.map((art) => {
+    if (art.forum) return art
+    const leadTokens = storyTokens(art.orig ?? art.title, scopeTokens)
+    const seen = new Set([art.url, ...(art.also ?? []).map((x) => x.url)])
+    const matchedForums: RelatedItem[] = []
+    for (const ft of threadTokens) {
+      if (seen.has(ft.item.url)) continue
+      if (Math.abs(+art.date - +ft.item.date) > WINDOW_MS) continue
+      if (sameEvent(leadTokens, ft.tokens)) {
+        seen.add(ft.item.url)
+        matchedForums.push({
+          url: ft.item.url,
+          title: ft.item.title,
+          source: ft.item.source,
+          date: ft.item.date,
+          orig: ft.item.orig,
+          forum: true,
+        })
+      }
+    }
+    if (!matchedForums.length) return art
+    return { ...art, also: [...(art.also ?? []), ...matchedForums] }
+  })
+}
+
+/**
+ * Builds an oldest-to-newest chronological event timeline combining the lead article and all companion sources
+ * (official police alerts, press updates, and matching forum threads).
+ */
+export function buildStoryTimeline(lead: Article): RelatedItem[] {
+  const seen = new Set<string>()
+  const all: RelatedItem[] = [
+    {
+      url: lead.url,
+      title: lead.title,
+      source: lead.source,
+      date: lead.date,
+      orig: lead.orig,
+      ...(lead.police ? { police: true } : {}),
+      ...(lead.forum ? { forum: true } : {}),
+    },
+    ...(lead.also ?? []),
+  ]
+  const unique: RelatedItem[] = []
+  for (const item of all) {
+    if (seen.has(item.url)) continue
+    seen.add(item.url)
+    unique.push(item)
+  }
+  return unique.sort((a, b) => +a.date - +b.date)
 }
