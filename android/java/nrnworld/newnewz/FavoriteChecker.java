@@ -221,7 +221,7 @@ public final class FavoriteChecker {
             if (code < 200 || code >= 300) return null;
             InputStream is = conn.getInputStream();
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096]; int total = 0; final int maxBytes = 4 * 1024 * 1024;
+            byte[] buf = new byte[4096];
             int total = 0;
             int n;
             while ((n = is.read(buf)) != -1) {
@@ -230,7 +230,7 @@ public final class FavoriteChecker {
                     is.close();
                     return null;
                 }
-                total += n; if (total > maxBytes) { is.close(); return null; } bos.write(buf, 0, n);
+                bos.write(buf, 0, n);
             }
             is.close();
             return new String(bos.toByteArray(), charset);

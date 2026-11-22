@@ -145,7 +145,7 @@ export function useGlobe({
       type: 'FeatureCollection',
       features: c.feats.map((f) => ({
         ...f,
-        properties: { ...f.properties, sel: f.properties.name === c.sel ? 1 : 0, n: heatRef.current[f.properties.name] ?? 0 },
+        properties: { ...f.properties, sel: f.properties.name === c.sel ? 1 : 0, n: heatRef.current[f.properties.name] ?? 0, mode: c.mode },
       })),
     } as never)
     names.setData({
@@ -176,8 +176,16 @@ export function useGlobe({
           source: 'areas',
           paint: {
             'fill-color': isPaper ? '#c8321e' : '#ff5a3c',
-            // near-invisible: only there to catch clicks; outlines carry the look
-            'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.15, 0.01],
+            // near-invisible: only there to catch clicks; fade out coarse ADM1/ADM2 polygons when zoomed in to streets/neighbourhoods
+            'fill-opacity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              10.5,
+              ['case', ['boolean', ['feature-state', 'hover'], false], 0.15, 0.01],
+              12,
+              ['case', ['==', ['get', 'mode'], 3], ['case', ['boolean', ['feature-state', 'hover'], false], 0.15, 0.01], 0],
+            ],
           },
         })
         m.addLayer({
@@ -187,7 +195,16 @@ export function useGlobe({
           paint: {
             'line-color': ['case', ['==', ['get', 'sel'], 1], '#ff2d1a', isPaper ? '#c8321e' : '#ff5a3c'],
             'line-width': ['case', ['==', ['get', 'sel'], 1], 3.5, ['+', 1, ['min', ['get', 'n'], 4]]],
-            'line-opacity': 0.95,
+            // Fade out coarse simplified geoBoundaries lines when zoomed in close so they never cut awkwardly across islands/streets
+            'line-opacity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              10.5,
+              0.92,
+              12,
+              ['case', ['==', ['get', 'mode'], 3], 0.92, 0],
+            ],
           },
         })
       }
@@ -601,6 +618,11 @@ export function useGlobe({
         })
 
         m.on('mousemove', 'areas-fill', (e) => {
+          const c = curRef.current
+          if (c && c.mode < 3 && m!.getZoom() >= 11.5) {
+            unhover()
+            return
+          }
           const id = e.features?.[0]?.id
           if (id === hovRef.current) return
           unhover()
@@ -625,9 +647,10 @@ export function useGlobe({
             }
           }
 
-          // 2. Check if user clicked a sub-area polygon
+          // 2. Check if user clicked a sub-area polygon (skip coarse ADM1/ADM2 polygons when zoomed in to neighbourhood/street level so clicking e.g. Gamla stan picks that exact spot)
           const c = curRef.current
-          const hit = c && m!.getLayer('areas-fill') ? m!.queryRenderedFeatures(e.point, { layers: ['areas-fill'] })[0] : undefined
+          const allowPolygonPick = !!c && (c.mode === 3 || m!.getZoom() < 11.5)
+          const hit = allowPolygonPick && m!.getLayer('areas-fill') ? m!.queryRenderedFeatures(e.point, { layers: ['areas-fill'] })[0] : undefined
           if (hit) {
             const f = c!.feats.find((x) => x.properties.name === hit.properties.name && (c!.mode === 1 || x.properties.parent === hit.properties.parent))
             if (f && f.properties.name !== c!.sel) return onArea(f)
