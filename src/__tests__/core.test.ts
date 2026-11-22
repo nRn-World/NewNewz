@@ -478,6 +478,43 @@ describe('lib.ts helpers & Worker RFC 8291 Web Push encryption', () => {
     // Country exonyms ("Sverige" <-> "Sweden")
     const seAliases = placeAliases({ level: 'country', name: 'Sverige' }, 'SE')
     expect(mentionsPlace('Sweden announces new rail investment', seAliases)).toBe(true)
+
+    // Short / ambiguous districts like "Sur, Diyarbakır, Türkiye" MUST require parent city and NEVER leak
+    // foreign articles like "Lanao del Sur" (Philippines), "Paris sur Seine" (France), or "Esch-sur-Alzette" (Luxembourg)
+    const surDiyarbakir: Place = {
+      lat: 37.91,
+      lon: 40.23,
+      cc: 'TR',
+      parts: [
+        { level: 'district', name: 'Sur' },
+        { level: 'city', name: 'Diyarbakır' },
+        { level: 'country', name: 'Türkiye' },
+      ],
+    }
+    const surTarget = target(surDiyarbakir, 0)
+    expect(surTarget.mustMatchParent).toBe(true)
+    expect(surTarget.queries).not.toContain('"Sur"')
+    expect(matchesTarget(art('One Wounded as Armed Clash Erupts Between Two Families in Balabagan, Lanao del Sur', 'The Mindanao Sentinel'), surTarget)).toBe(false)
+    expect(matchesTarget(art('Hyde Paris sur Seine, Île Seguin to bring 230 rooms', 'deeparrival.com'), surTarget)).toBe(false)
+    expect(matchesTarget(art('Three thieves caught in Esch-sur-Alzette', 'RTL Today'), surTarget)).toBe(false)
+    expect(matchesTarget(art('İstanbul tarihi surları restore ediliyor - Türkiye', 'TRT'), surTarget)).toBe(false)
+    expect(matchesTarget(art("Diyarbakır'ın Sur ilçesinde polis operasyonu", 'TRT Haber'), surTarget)).toBe(true)
+    expect(matchesTarget(art('Amed Sur ilçesinde kültür festivali başladı', 'Rudaw'), surTarget)).toBe(true)
+
+    // Ambiguous 3-letter city like "Van, Türkiye" must not match English "van" in London
+    const vanTurkey: Place = {
+      lat: 38.5,
+      lon: 43.38,
+      cc: 'TR',
+      parts: [
+        { level: 'city', name: 'Van' },
+        { level: 'country', name: 'Türkiye' },
+      ],
+    }
+    const vanTarget = target(vanTurkey, 0)
+    expect(vanTarget.mustMatchParent).toBe(true)
+    expect(matchesTarget(art('Police stop suspicious white van in London', 'BBC'), vanTarget)).toBe(false)
+    expect(matchesTarget(art('Heavy snowfall blocks roads in Van, Turkey', 'Daily Sabah'), vanTarget)).toBe(true)
   })
 
   it('sorts Most Covered (Mest omskrivet) accurately for both Forum replies and News coverage/buzz', () => {

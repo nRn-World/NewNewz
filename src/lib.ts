@@ -790,10 +790,11 @@ async function headlines(query: string, country: string, when: string, signal?: 
   // the last-hour window is what makes the list fresh, so it is re-asked far more often than the wider windows
   if (hit && Date.now() - hit.at < (when === '1h' ? 20_000 : 150_000)) return hit.value
 
+  const useYahoo = editionFor(country).lang === 'en' && (when === '' || when === '1h' || when === '1d')
   const settled = await Promise.allSettled([
     bingHeadlines(query, country, when, signal),
     googleHeadlines(query, country, when, signal),
-    ...(when === '' || when === '1h' || when === '1d' ? [yahooHeadlines(query, country, signal)] : []),
+    ...(useYahoo ? [yahooHeadlines(query, country, signal)] : []),
   ])
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   const anySucceeded = settled.some((s) => s.status === 'fulfilled')
@@ -1017,6 +1018,20 @@ const GENERIC_STREETS = new Set([
   'grande rue', 'rue de la gare', 'calle mayor', 'cumhuriyet caddesi', 'ataturk caddesi',
 ])
 
+/**
+ * Common dictionary words, compass terms, or multi-country district/town names that MUST also mention their
+ * parent city/country so e.g. "Sur, Diyarbakır" never matches "Lanao del Sur" (Philippines) or "Paris sur Seine".
+ */
+const AMBIGUOUS_PLACES = new Set([
+  'sur', 'van', 'bar', 'gap', 'pau', 'rio', 'sol', 'mar', 'san', 'man', 'bay', 'sun', 'red', 'new', 'old',
+  'center', 'centre', 'centrum', 'central', 'downtown', 'midtown', 'uptown', 'old town', 'new town',
+  'north', 'south', 'east', 'west', 'city', 'town', 'village', 'district', 'ward', 'merkez',
+  'nice', 'bath', 'reading', 'deal', 'march', 'sale', 'orange', 'mobile', 'normal', 'split',
+  'tours', 'sens', 'lens', 'york', 'hull', 'bury', 'park', 'port', 'beach', 'hill', 'hills',
+  'island', 'valley', 'square', 'kale', 'dere', 'tepe', 'ova', 'alan', 'yaka', 'konak', 'pazar',
+  'han', 'kaya', 'yeni', 'eski', 'fatih', 'cumhuriyet', 'ataturk', 'horn', 'berg', 'bad', 'hof', 'see',
+])
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -1076,12 +1091,12 @@ export function mentionsPlace(text: string, aliases: string[]): boolean {
       if (new RegExp(` ${escapeRe(aNorm)}\\p{L}{0,4}(?= )`, 'u').test(padded)) return true
       continue
     }
-    // Short 2-3 char names ("Åre", "Hjo", "Kos", "Goa", "UK"): require exact word & preserve accents so "Åre" != "are"
+    // Short 2-3 char names ("Åre", "Hjo", "Kos", "Sur", "Van"): require exact word, preserve accents, and reject hyphen-linked compounds ("Esch-sur-Alzette")
     if (aNorm.length <= 3) {
       const rawClean = rawAlias.trim().toLowerCase()
-      if (rawClean !== aNorm) {
-        if (new RegExp(`[^\\p{L}\\p{N}]${escapeRe(rawClean)}s?(?![\\p{L}\\p{N}])`, 'u').test(rawLower)) return true
-      } else if (padded.includes(` ${aNorm} `) || padded.includes(` ${aNorm}s `)) {
+      const targetWord = rawClean !== aNorm ? rawClean : aNorm
+      const re = new RegExp(`(?<![\\p{L}\\p{N}-])${escapeRe(targetWord)}(?:s|'s|'da|'de|'ta|'te|'a|'e)?(?![\\p{L}\\p{N}-])`, 'u')
+      if (re.test(rawClean !== aNorm ? rawLower : ` ${text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')} `)) {
         return true
       }
       continue
@@ -1097,12 +1112,19 @@ export function mentionsPlace(text: string, aliases: string[]): boolean {
 export function target(place: Place, from: number) {
   const [own, ...up] = place.parts.slice(from)
   const cleanName = own.level === 'street' ? streetBaseName(own.name) : own.name
-  const hasHouseNo = own.level === 'street' && norm(own.name) !== norm(cleanName)
+  const cleanNorm = norm(cleanName)
+  const hasHouseNo = own.level === 'street' && norm(own.name) !== cleanNorm
   const ctx = up.find((x) => x.level === 'city') ?? up[0]
   const small = ['street', 'district'].includes(own.level)
-  const mustMatchParent = own.level === 'street' && GENERIC_STREETS.has(norm(cleanName)) && up.length > 0
+  const isShortAscii = cleanNorm.length <= 3 && /^[a-z0-9]+$/.test(cleanName.trim().toLowerCase())
+  const mustMatchParent =
+    up.length > 0 &&
+    (isShortAscii || AMBIGUOUS_PLACES.has(cleanNorm) || (own.level === 'street' && GENERIC_STREETS.has(cleanNorm)))
   const aliases = placeAliases(own, place.cc)
-  const parentAliases = up.flatMap((p) => placeAliases(p, place.cc))
+  // For ambiguous districts/streets (e.g. "Sur" in Diyarbakır or "Storgatan" in Örebro), require the parent city/district
+  // rather than just the country so "İstanbul surları, Türkiye" or "Storgatan i Umeå, Sverige" never leaks in.
+  const parentParts = small && ctx ? [...new Set([up[0], ctx].filter(Boolean) as Part[])] : up
+  const parentAliases = parentParts.flatMap((p) => placeAliases(p, place.cc))
   const parents = [up[0], ctx].filter(Boolean) as Part[]
 
   const queries = small
@@ -1114,12 +1136,14 @@ export function target(place: Place, from: number) {
           ...(!mustMatchParent && cleanName.length >= 4 ? [`"${cleanName}"`] : []),
         ]),
       ]
-    : [
-        ...new Set([
-          `"${cleanName}"`,
-          ...aliases.filter((a) => norm(a) !== norm(cleanName) && /^[A-Za-z\s-]+$/.test(a)).slice(0, 1).map((a) => `"${a}"`),
-        ]),
-      ]
+    : mustMatchParent && ctx
+      ? [`"${cleanName}" "${ctx.name}"`, `"${cleanName}" ${ctx.name}`]
+      : [
+          ...new Set([
+            `"${cleanName}"`,
+            ...aliases.filter((a) => norm(a) !== cleanNorm && /^[A-Za-z\s-]+$/.test(a)).slice(0, 1).map((a) => `"${a}"`),
+          ]),
+        ]
   const query = queries[0] ?? `"${cleanName}"`
   const minKeyLen = /[\u0600-\u06ff\u0e00-\u0e7f\u3040-\u9fff\uac00-\ud7af]/.test(cleanName) ? 2 : 3
   const key = norm(cleanName).split(' ').filter((w) => w.length >= minKeyLen).sort((x, y) => y.length - x.length)[0]
@@ -1283,8 +1307,6 @@ export async function fetchCustomRssFeeds(feeds: string[], signal?: AbortSignal)
 }
 
 const day = (d: Date) => d.toISOString().slice(0, 10)
-
-const widened = new Set<string>()
 
 /** Up to 20 of the newest stories about the exact place, the rest of the list filled with the newest from the area around it. */
 export function withNearby(exact: Article[], near: Article[], scope: string, want: number): Article[] {
@@ -1459,11 +1481,8 @@ export async function news(
             if (!items.length) return
             ok++
             const matched = tagItems(items)
-            const picked = matched.length
-              ? matched
-              : items.slice(0, 5).map((a) => ({ ...a, where: `${a.where ?? ''} ${primary.cleanName}`.trim(), scopeTag: 'RSS', exactMatch: true }))
-            if (picked.length) {
-              lists.push(picked)
+            if (matched.length) {
+              lists.push(matched)
               emit()
             }
           })
@@ -1573,22 +1592,8 @@ export async function news(
   onProgress?.(100)
   if (!ok) throw new Error('err.source')
   const finalArticles = currentMerged()
-  // A street, venue or district with little recent news of its own is filled up with the newest from the area
-  // around it ("Kista centrum" -> Kista): what happens nearby is what people there want to know.
-  let articles = finalArticles
-  const upIdx = place.parts.findIndex((p, i) => i > from && p.level !== 'street')
-  const wideKey = `${primary.queries[0]}|${cc}`
-  if (small && monthsBack === 0 && upIdx > 0) {
-    const recent = finalArticles.filter((a) => Date.now() - +a.date < 7 * 864e5).length
-    // the minute-by-minute refresh sees one day only, so it follows what the full load decided
-    if (deep ? recent < 5 : !!onPartial && widened.has(wideKey)) {
-      if (deep) widened.add(wideKey)
-      const near = await news(place, upIdx, want, deep, undefined, 0, signal).catch(() => null)
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (near) articles = withNearby(finalArticles, near.articles, place.parts[upIdx].name, want)
-    } else if (deep) widened.delete(wideKey)
-  }
-  const r = { articles, scope: primary.own.name, query: primary.queries[0], exactCount: finalArticles.length }
+  // Strictly return ONLY articles about the exact searched/selected place — never mix in unrelated parent-area news.
+  const r = { articles: finalArticles, scope: primary.own.name, query: primary.queries[0], exactCount: finalArticles.length }
   if (deep) newsCache.set(ck, r)
   return r
 }

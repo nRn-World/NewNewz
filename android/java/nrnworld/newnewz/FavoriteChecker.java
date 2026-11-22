@@ -120,10 +120,15 @@ public final class FavoriteChecker {
         return nfd.replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
     }
 
-    private static boolean hasPlaceWord(String text, String mustKey) {
+    private static boolean hasPlaceWord(String text, String mustKey, String parentKey) {
         if (mustKey == null || mustKey.isEmpty()) return true;
         String hay = " " + normStr(text) + " ";
-        return hay.contains(" " + mustKey);
+        boolean ownHit = mustKey.length() <= 3 ? hay.contains(" " + mustKey + " ") : hay.contains(" " + mustKey);
+        if (!ownHit) return false;
+        if (mustKey.length() <= 3 && parentKey != null && !parentKey.isEmpty()) {
+            return hay.contains(" " + parentKey);
+        }
+        return true;
     }
 
     private static String streetBase(String raw) {
@@ -298,22 +303,28 @@ public final class FavoriteChecker {
                         mustKey = w;
                     }
                 }
+                String parentKey = "";
+                for (String w : normStr(ctxName).split(" ")) {
+                    if (w.length() >= 3 && w.length() > parentKey.length()) {
+                        parentKey = w;
+                    }
+                }
 
                 String cc = p.optString("cc", "US").toUpperCase(Locale.ROOT);
                 boolean wantNews = p.optBoolean("alertNews", true);
                 boolean wantForum = p.optBoolean("alertForum", true);
-                String sig = cc + "|" + mustKey + "|" + normStr(cleanOwn) + "|" + (wantNews ? "1" : "0") + "|" + (wantForum ? "1" : "0");
+                String sig = cc + "|" + mustKey + "|" + parentKey + "|" + normStr(cleanOwn) + "|" + (wantNews ? "1" : "0") + "|" + (wantForum ? "1" : "0");
 
                 JSONArray items = sigMemo.get(sig);
                 if (items == null) {
                     items = new JSONArray();
                     boolean small = "street".equals(ownLevel) || "district".equals(ownLevel);
-                    String newsQ = (small && !ctxName.isEmpty())
-                            ? ("\"" + cleanOwn + "\" " + ctxName)
+                    String newsQ = ((small || mustKey.length() <= 3) && !ctxName.isEmpty())
+                            ? ("\"" + cleanOwn + "\" \"" + ctxName + "\"")
                             : ("\"" + cleanOwn + "\"");
-                    String forumQ = cleanOwn.length() >= 4
+                    String forumQ = (cleanOwn.length() >= 4 && mustKey.length() > 3)
                             ? ("\"" + cleanOwn + "\"")
-                            : ((small && !ctxName.isEmpty()) ? (cleanOwn + " " + ctxName) : cleanOwn);
+                            : (!ctxName.isEmpty() ? (cleanOwn + " " + ctxName) : cleanOwn);
 
                     if (wantNews) {
                         if ("SE".equals(cc)) {
@@ -335,7 +346,7 @@ public final class FavoriteChecker {
                                     JSONObject loc = ev.optJSONObject("location");
                                     String locName = loc != null ? loc.optString("name", "") : "";
                                     String evUrl = ev.optString("url", "");
-                                    if (!evUrl.isEmpty() && !evName.isEmpty() && hasPlaceWord(evName + " " + evSum + " " + locName, mustKey)) {
+                                    if (!evUrl.isEmpty() && !evName.isEmpty() && hasPlaceWord(evName + " " + evSum + " " + locName, mustKey, parentKey)) {
                                         JSONObject hit = new JSONObject();
                                         String evType = ev.optString("type", "");
                                         hit.put("title", "\uD83D\uDEE1 Polisen \u00B7 " + (!evType.isEmpty() ? (evType + ": " + (!evSum.isEmpty() ? evSum : evName)) : evName));
@@ -385,7 +396,7 @@ public final class FavoriteChecker {
                                 String t = firstGroup(TITLE_RE.matcher(blk));
                                 String d = firstGroup(DESC_RE.matcher(blk)).replaceAll("<[^>]+>", " ").trim();
                                 String l = firstGroup(LINK_RE.matcher(blk));
-                                if (!t.isEmpty() && !l.isEmpty() && hasPlaceWord(t + " " + d, mustKey)) {
+                                if (!t.isEmpty() && !l.isEmpty() && hasPlaceWord(t + " " + d, mustKey, parentKey)) {
                                     JSONObject hit = new JSONObject();
                                     hit.put("title", decodeEntities(t));
                                     hit.put("url", articleUrl(l));
@@ -398,7 +409,7 @@ public final class FavoriteChecker {
                         }
 
                         // Direct Google News RSS (last 24h) from the user's phone so breaking local news never waits for Bing
-                        String gnQ = cleanOwn.length() >= 4 ? ("\"" + cleanOwn + "\" when:1d") : (newsQ + " when:1d");
+                        String gnQ = (cleanOwn.length() >= 4 && mustKey.length() > 3) ? ("\"" + cleanOwn + "\" when:1d") : (newsQ + " when:1d");
                         String gnUrl = "https://news.google.com/rss/search?q=" + URLEncoder.encode(gnQ, "UTF-8") + "&gl=" + cc;
                         String gnXml = httpGetString(gnUrl, StandardCharsets.UTF_8, ANDROID_UA);
                         if (gnXml != null) {
@@ -409,7 +420,7 @@ public final class FavoriteChecker {
                                 String t = firstGroup(TITLE_RE.matcher(blk));
                                 String d = firstGroup(DESC_RE.matcher(blk)).replaceAll("<[^>]+>", " ").trim();
                                 String l = firstGroup(LINK_RE.matcher(blk));
-                                if (!t.isEmpty() && !l.isEmpty() && hasPlaceWord(t + " " + d, mustKey)) {
+                                if (!t.isEmpty() && !l.isEmpty() && hasPlaceWord(t + " " + d, mustKey, parentKey)) {
                                     JSONObject hit = new JSONObject();
                                     hit.put("title", decodeEntities(t));
                                     hit.put("url", decodeEntities(l));
@@ -437,7 +448,7 @@ public final class FavoriteChecker {
                                         String pt = post.optString("title", "");
                                         String ps = post.optString("selftext", "");
                                         String pl = post.optString("permalink", "");
-                                        if (!pt.isEmpty() && !pl.isEmpty() && hasPlaceWord(pt + " " + ps, mustKey)) {
+                                        if (!pt.isEmpty() && !pl.isEmpty() && hasPlaceWord(pt + " " + ps, mustKey, parentKey)) {
                                             JSONObject hit = new JSONObject();
                                             hit.put("title", pt);
                                             hit.put("url", "https://www.reddit.com" + pl);
@@ -458,7 +469,7 @@ public final class FavoriteChecker {
                                 while (fm.find() && items.length() < 18) {
                                     String href = fm.group(2);
                                     String ft = decodeEntities(fm.group(3).replaceAll("<[^>]+>", "")).trim();
-                                    if (!ft.isEmpty() && href != null && hasPlaceWord(ft, mustKey)) {
+                                    if (!ft.isEmpty() && href != null && hasPlaceWord(ft, mustKey, parentKey)) {
                                         JSONObject hit = new JSONObject();
                                         hit.put("title", ft);
                                         hit.put("url", href.startsWith("http") ? href : ("https://www.flashback.org" + (href.startsWith("/") ? href : ("/" + href))));

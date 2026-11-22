@@ -277,21 +277,28 @@ function wantedByTopic(place, items) {
   return items.filter((it) => topicsOf(it.title, it.police === true).some((id) => place.alert.includes(id)))
 }
 
-function hasPlaceWord(text, mustKey) {
+function hasPlaceWord(text, mustKey, parentKey = '') {
   if (!mustKey) return true
   const hay = ` ${normStr(text)} `
-  return hay.includes(` ${mustKey}`)
+  const ownHit = mustKey.length <= 3 ? hay.includes(` ${mustKey} `) : hay.includes(` ${mustKey}`)
+  if (!ownHit) return false
+  if (parentKey && mustKey.length <= 3) {
+    return hay.includes(` ${parentKey}`)
+  }
+  return true
 }
 
 function buildPlaceQueries(place) {
   const parts = Array.isArray(place.parts) ? place.parts : []
-  if (!parts.length) return { newsQueries: [], forumQueries: [], mustKey: '', cleanOwn: '' }
+  if (!parts.length) return { newsQueries: [], forumQueries: [], mustKey: '', parentKey: '', cleanOwn: '' }
   const own = parts[0]
   const cleanOwn = own.level === 'street' ? streetBase(own.name) : own.name
   const hasHouseNo = own.level === 'street' && normStr(own.name) !== normStr(cleanOwn)
   const up = parts.slice(1)
   const ctx = up.find((x) => x.level === 'city') ?? up[0]
   const small = own.level === 'street' || own.level === 'district'
+  const mustKey = normStr(cleanOwn).split(' ').filter((w) => w.length >= 3).sort((a, b) => b.length - a.length)[0] || ''
+  const parentKey = ctx ? (normStr(ctx.name).split(' ').filter((w) => w.length >= 3).sort((a, b) => b.length - a.length)[0] || '') : ''
   const newsQueries = small && ctx
     ? [
         ...new Set([
@@ -301,13 +308,14 @@ function buildPlaceQueries(place) {
           ...(cleanOwn.length >= 4 ? [`"${cleanOwn}"`] : []),
         ]),
       ]
-    : [`"${cleanOwn}"`]
+    : mustKey.length <= 3 && ctx
+      ? [`"${cleanOwn}" "${ctx.name}"`]
+      : [`"${cleanOwn}"`]
   const forumQueries = [
     ...(cleanOwn.length >= 4 ? [`"${cleanOwn}"`] : []),
     ...(small && ctx ? [`${cleanOwn} ${ctx.name}`] : [cleanOwn]),
   ]
-  const mustKey = normStr(cleanOwn).split(' ').filter((w) => w.length >= 3).sort((a, b) => b.length - a.length)[0] || ''
-  return { newsQueries, forumQueries, mustKey, cleanOwn }
+  return { newsQueries, forumQueries, mustKey, parentKey, cleanOwn }
 }
 
 let d1ReadyPromise = null
@@ -400,7 +408,7 @@ async function listSubRecords(env) {
   return []
 }
 
-async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) {
+async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise, parentKey = '') {
   const cc = (place.cc || 'US').toUpperCase()
   const out = []
 
@@ -417,7 +425,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
       if (Array.isArray(events)) {
         for (const ev of events.slice(0, 150)) {
           const hay = `${ev?.name ?? ''} ${ev?.summary ?? ''} ${ev?.location?.name ?? ''}`
-          if (ev?.url && ev?.name && hasPlaceWord(hay, mustKey)) {
+          if (ev?.url && ev?.name && hasPlaceWord(hay, mustKey, parentKey)) {
             out.push({
               title: `🛡 Polisen · ${ev.type ? `${ev.type}: ${ev.summary || ev.name}` : ev.name}`,
               url: ev.url.startsWith('http') ? ev.url : `https://polisen.se${ev.url}`,
@@ -473,7 +481,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
           const d = (desc?.[1] ?? desc?.[2] ?? '').replace(/<[^>]+>/g, ' ').trim()
           const l = (link?.[1] ?? '').trim()
           // `raw` is the address as alerts stored it before articleUrl(): it keeps already-seen stories seen
-          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey)) out.push({ title: decodeEntities(t), url: articleUrl(l), raw: l, kind: 'news' })
+          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey, parentKey)) out.push({ title: decodeEntities(t), url: articleUrl(l), raw: l, kind: 'news' })
         }
       }
     } catch { /* next */ }
@@ -500,7 +508,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
           const t = (title?.[1] ?? title?.[2] ?? '').trim()
           const d = (desc?.[1] ?? desc?.[2] ?? '').replace(/<[^>]+>/g, ' ').trim()
           const l = (link?.[1] ?? '').trim()
-          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey)) {
+          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey, parentKey)) {
             out.push({ title: decodeEntities(t), url: decodeEntities(l), kind: 'news' })
             if (out.length >= 12) break
           }
@@ -508,8 +516,9 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
       }
     } catch { /* fallback to Bing + Polisen */ }
   }
-  // Also check Yahoo News RSS search for the top query so breaking stories indexed first on Yahoo trigger alerts
-  if (out.length < 10 && queries[0]) {
+  // Also check Yahoo News RSS search for English-edition countries so breaking stories indexed first on Yahoo trigger alerts
+  const enCountries = new Set(['US', 'GB', 'CA', 'AU', 'NZ', 'IE', 'SG', 'IN', 'PH', 'ZA', 'NG', 'KE', 'JM'])
+  if (out.length < 10 && queries[0] && enCountries.has(cc)) {
     try {
       const yr = await fetch(`https://news.search.yahoo.com/rss?p=${encodeURIComponent(queries[0])}`, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPush/1.0)' },
@@ -526,7 +535,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
           const t = (title?.[1] ?? title?.[2] ?? '').trim()
           const d = (desc?.[1] ?? desc?.[2] ?? '').replace(/<[^>]+>/g, ' ').trim()
           const l = (link?.[1] ?? '').trim()
-          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey)) out.push({ title: decodeEntities(t), url: articleUrl(l), kind: 'news' })
+          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey, parentKey)) out.push({ title: decodeEntities(t), url: articleUrl(l), kind: 'news' })
           if (out.length >= 12) break
         }
       }
@@ -535,7 +544,7 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
   return out.slice(0, 12)
 }
 
-async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
+async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn, parentKey = '') {
   const cc = (place.cc || '').toUpperCase()
   const out = []
   const q = forumQueries[0]
@@ -552,7 +561,7 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
       const j = await r.json()
       for (const c of j?.data?.children ?? []) {
         const d = c?.data
-        if (d?.permalink && d?.title && hasPlaceWord(`${d.title} ${d.selftext || ''}`, mustKey)) {
+        if (d?.permalink && d?.title && hasPlaceWord(`${d.title} ${d.selftext || ''}`, mustKey, parentKey)) {
           out.push({ title: d.title, url: `https://www.reddit.com${d.permalink}`, kind: 'forum' })
         }
       }
@@ -572,7 +581,7 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
         for (const m of html.matchAll(/<a[^>]+id=["']thread_title_(\d+)["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
           const href = m[2]
           const title = decodeEntities(m[3].replace(/<[^>]+>/g, '')).trim()
-          if (title && href && hasPlaceWord(title, mustKey)) {
+          if (title && href && hasPlaceWord(title, mustKey, parentKey)) {
             out.push({ title, url: new URL(href, 'https://www.flashback.org').href, kind: 'forum' })
           }
           if (out.length >= 16) break
@@ -591,7 +600,7 @@ async function checkForumsForPlace(place, forumQueries, mustKey, cleanOwn) {
       const j = await r.json()
       for (const item of j?.posts ?? []) {
         const p = item?.post
-        if (p?.ap_id && p?.name && hasPlaceWord(`${p.name} ${p.body || ''}`, mustKey)) {
+        if (p?.ap_id && p?.name && hasPlaceWord(`${p.name} ${p.body || ''}`, mustKey, parentKey)) {
           out.push({ title: p.name, url: p.ap_id, kind: 'forum' })
         }
       }
@@ -619,10 +628,10 @@ function createSharedPolisenLoader() {
 
 function placeSignature(p) {
   const cc = (p.cc || 'US').toUpperCase()
-  const { mustKey, cleanOwn } = buildPlaceQueries(p)
+  const { mustKey, parentKey, cleanOwn } = buildPlaceQueries(p)
   const wn = p.alertNews !== false ? '1' : '0'
   const wf = p.alertForum !== false ? '1' : '0'
-  return `${cc}|${mustKey}|${normStr(cleanOwn)}|${wn}|${wf}`
+  return `${cc}|${mustKey}|${parentKey}|${normStr(cleanOwn)}|${wn}|${wf}`
 }
 
 /** Rejects non-HTTPS, credentials, custom ports, localhost, IPv6 literals, and private/link-local/CGNAT IPv4 ranges. */
@@ -733,14 +742,14 @@ export default {
         for (const p of places) {
           const sig = placeSignature(p)
           if (!memo.has(sig)) {
-            const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
+            const { newsQueries, forumQueries, mustKey, parentKey, cleanOwn } = buildPlaceQueries(p)
             const wantNews = p.alertNews !== false
             const wantForum = p.alertForum !== false
             memo.set(
               sig,
               Promise.all([
-                wantNews ? checkNewsForPlace(p, newsQueries, mustKey, sharedPolisen) : Promise.resolve([]),
-                wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn) : Promise.resolve([]),
+                wantNews ? checkNewsForPlace(p, newsQueries, mustKey, sharedPolisen, parentKey) : Promise.resolve([]),
+                wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn, parentKey) : Promise.resolve([]),
               ]).then(([n, f]) => [...n, ...f]),
             )
           }
@@ -1187,12 +1196,12 @@ export default {
     const placeResults = new Map()
     for (const sig of tickSigs) {
       const p = uniqueMap.get(sig)
-      const { newsQueries, forumQueries, mustKey, cleanOwn } = buildPlaceQueries(p)
+      const { newsQueries, forumQueries, mustKey, parentKey, cleanOwn } = buildPlaceQueries(p)
       const wantNews = p.alertNews !== false
       const wantForum = p.alertForum !== false
       const [newsHits, forumHits] = await Promise.all([
-        wantNews ? checkNewsForPlace(p, newsQueries, mustKey, sharedPolisen) : Promise.resolve([]),
-        wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn) : Promise.resolve([]),
+        wantNews ? checkNewsForPlace(p, newsQueries, mustKey, sharedPolisen, parentKey) : Promise.resolve([]),
+        wantForum ? checkForumsForPlace(p, forumQueries, mustKey, cleanOwn, parentKey) : Promise.resolve([]),
       ])
       placeResults.set(sig, [...newsHits, ...forumHits])
     }
