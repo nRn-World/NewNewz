@@ -217,6 +217,9 @@ public final class FavoriteChecker {
             conn.setReadTimeout(8000);
             conn.setInstanceFollowRedirects(true);
             conn.setRequestProperty("User-Agent", ua);
+            if (urlStr.startsWith("https://news.google.com/")) {
+                conn.setRequestProperty("Cookie", "SOCS=CAESHAgBEhJnd3NfMjAyNDAxMDEtMF9SQzIaAmVuIAEaBgiAo_CmBg; CONSENT=YES+cb.20240101-01-p0.en+FX+999");
+            }
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) return null;
             InputStream is = conn.getInputStream();
@@ -388,6 +391,28 @@ public final class FavoriteChecker {
                                     hit.put("url", articleUrl(l));
                                     // the address as it was stored before articleUrl(): keeps already-seen stories seen
                                     hit.put("raw", l);
+                                    hit.put("kind", "news");
+                                    items.put(hit);
+                                }
+                            }
+                        }
+
+                        // Direct Google News RSS (last 24h) from the user's phone so breaking local news never waits for Bing
+                        String gnQ = cleanOwn.length() >= 4 ? ("\"" + cleanOwn + "\" when:1d") : (newsQ + " when:1d");
+                        String gnUrl = "https://news.google.com/rss/search?q=" + URLEncoder.encode(gnQ, "UTF-8") + "&gl=" + cc;
+                        String gnXml = httpGetString(gnUrl, StandardCharsets.UTF_8, ANDROID_UA);
+                        if (gnXml != null) {
+                            networkOk++;
+                            Matcher gm = ITEM_RE.matcher(gnXml);
+                            while (gm.find() && items.length() < 14) {
+                                String blk = gm.group(1);
+                                String t = firstGroup(TITLE_RE.matcher(blk));
+                                String d = firstGroup(DESC_RE.matcher(blk)).replaceAll("<[^>]+>", " ").trim();
+                                String l = firstGroup(LINK_RE.matcher(blk));
+                                if (!t.isEmpty() && !l.isEmpty() && hasPlaceWord(t + " " + d, mustKey)) {
+                                    JSONObject hit = new JSONObject();
+                                    hit.put("title", decodeEntities(t));
+                                    hit.put("url", decodeEntities(l));
                                     hit.put("kind", "news");
                                     items.put(hit);
                                 }

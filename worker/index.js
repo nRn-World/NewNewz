@@ -479,6 +479,35 @@ async function checkNewsForPlace(place, queries, mustKey, sharedPolisenPromise) 
     } catch { /* next */ }
     if (out.length >= 8) break
   }
+
+  // Also check Google News RSS (last 24h) via Vercel gn-proxy so breaking press missed by Bing triggers push alerts
+  const gnQuery = queries[queries.length - 1] || queries[0]
+  if (gnQuery && out.length < 10) {
+    try {
+      const gnUrl = `https://newnewz-gn.vercel.app/api/gn?q=${encodeURIComponent(`${gnQuery} when:1d`)}&gl=${cc}`
+      const gr = await fetch(gnUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPush/1.0)', Origin: 'https://nrnworld.one' },
+        cf: { cacheTtl: 240, cacheEverything: true },
+        signal: AbortSignal.timeout(4500),
+      })
+      if (gr.ok) {
+        const xml = await gr.text()
+        for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+          const block = m[1]
+          const title = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/)
+          const desc = block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>|<description>([\s\S]*?)<\/description>/)
+          const link = block.match(/<link>([\s\S]*?)<\/link>/)
+          const t = (title?.[1] ?? title?.[2] ?? '').trim()
+          const d = (desc?.[1] ?? desc?.[2] ?? '').replace(/<[^>]+>/g, ' ').trim()
+          const l = (link?.[1] ?? '').trim()
+          if (t && l && hasPlaceWord(`${t} ${d}`, mustKey)) {
+            out.push({ title: decodeEntities(t), url: decodeEntities(l), kind: 'news' })
+            if (out.length >= 12) break
+          }
+        }
+      }
+    } catch { /* fallback to Bing + Polisen */ }
+  }
   // Also check Yahoo News RSS search for the top query so breaking stories indexed first on Yahoo trigger alerts
   if (out.length < 10 && queries[0]) {
     try {

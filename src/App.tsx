@@ -13,12 +13,12 @@ import { norm } from './areas'
 import { buildBackupJson, downloadBackupFile, mergeBackupState, parseBackupJson } from './backup'
 import { type SavedArticle, loadSaved, persistSaved, toggleSavedItem } from './bookmarks'
 import { exportClipCard } from './clipCard'
-import { attachForumToClusters, buildStoryTimeline } from './cluster'
+import { attachForumToClusters, buildStoryTimeline, clusterArticles } from './cluster'
 import { fullDate, mediumDate, timeAgo } from './dates'
 import FavsPanel from './FavsPanel'
 import { Flag } from './Flags'
 import { LANGS, type Lang, loadLang, saveLang, tr } from './i18n'
-import { ProgressBox, Report, TimeTravel, TopicBar } from './Insights'
+import { ProgressBox, TimeTravel, TopicBar } from './Insights'
 import InstallPrompt from './InstallPrompt'
 import {
   type Article,
@@ -100,6 +100,7 @@ export default function App() {
   const [srcs, setSrcs] = useState<string[]>(loadSources)
   const [rssFeeds, setRssFeeds] = useState<string[]>(loadRssFeeds)
   const [copied, setCopied] = useState(false)
+  const [copiedEmail, setCopiedEmail] = useState(false)
   const [offline, setOffline] = useState(false)
   const [cats, setCats] = useState<string[]>(loadCats)
   const [freshArts, setFreshArts] = useState<Record<string, Article[]>>({})
@@ -175,7 +176,6 @@ export default function App() {
     area,
     areaProgress,
     cancelAreas,
-    heatEntries,
     pickOnGlobe,
     focusCrumb,
     focusStreet,
@@ -724,10 +724,11 @@ export default function App() {
 
   const visibleArticles = useMemo(() => {
     const rawBase = (onlyNew ? only!.items : res?.articles) ?? []
+    const deduped = tab === 'news' ? clusterArticles(rawBase, res?.scope ?? '') : rawBase
     const base =
       tab === 'news' && activeSpotItems?.length
-        ? attachForumToClusters(rawBase, activeSpotItems, res?.scope ?? '')
-        : rawBase
+        ? attachForumToClusters(deduped, activeSpotItems, res?.scope ?? '')
+        : deduped
     const qNorm = norm(newsFilter)
     const filtered = base.filter((a) => {
       if (topic && tab === 'news' && !matchesTopic(topicsOf(`${a.title} ${a.orig ?? ''}`, a.police), topic)) return false
@@ -743,8 +744,6 @@ export default function App() {
     // Strict chronological newest-first order (#01 is always the latest item)
     return [...filtered].sort((a, b) => +b.date - +a.date)
   }, [onlyNew, only, res, activeSpotItems, newsFilter, topic, tab, sortBy])
-
-  const nearbyScope = res?.articles.find((a) => a.exactMatch === false)?.scopeTag
 
   return (
     <div className="app">
@@ -1045,10 +1044,7 @@ export default function App() {
                 ))}
               </div>
             )}
-            {tab === 'news' && radiusKm > 0 && months === 0 && <p className="note">{t('radiusNote', { km: String(radiusKm) })}</p>}
-            {months > 0 && <p className="note">{t('archiveNote', { when: t(months === 1 ? 't1m' : months === 3 ? 't3m' : months === 6 ? 't6m' : 't1y').toLowerCase() })}</p>}
             {offline && <p className="offline">{t('offline')}</p>}
-            {tab === 'news' && nearbyScope && <p className="note">{t('nearbyNote', { p: res?.scope ?? '', scope: nearbyScope })}</p>}
             {busy && (
               <ProgressBox
                 key={`feed-${place.lat}-${place.lon}-${level}-${tab}-${months}-${radiusKm}`}
@@ -1085,37 +1081,12 @@ export default function App() {
               </p>
             )}
 
-            {/* Top Forum Spotlight when an address/place has 0 or sparse direct press articles */}
-            {tab === 'news' && !onlyNew && activeSpotItems && activeSpotItems.length > 0 && (
-              <section className="spotbox">
-                <div className="spothead">
-                  <b>💬 {t('forumSpotlight', { p: res?.scope ?? place.parts[level]?.name ?? '' })}</b>
-                  <button type="button" className="linkbtn" onClick={() => setTab('forum')}>
-                    {t('seeAllForum')}
-                  </button>
-                </div>
-                <ul className="spotlist">
-                  {activeSpotItems.map((fa) => (
-                    <li key={fa.url}>
-                      <a href={fa.url} target="_blank" rel="noopener noreferrer">
-                        {fa.title}
-                      </a>
-                      <small>
-                        {fa.source} · {ago(fa.date, lang)}
-                      </small>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {!onlyNew && res && res.articles.length === 0 && (!activeSpotItems || activeSpotItems.length === 0) && (
+            {!onlyNew && res && res.articles.length === 0 && (
               <p className="muted">{t(tab === 'forum' ? 'noForum' : 'none')}</p>
             )}
             {tab === 'news' && res && !onlyNew && (
               <TopicBar articles={res.articles.map((a) => ({ ...a, title: a.orig ?? a.title }))} topic={topic} setTopic={setTopic} t={t} />
             )}
-            {tab === 'news' && res && !onlyNew && months === 0 && <Report articles={res.articles} scope={res.scope} areas={heatEntries} nowMs={+refDate} t={t} />}
 
             {/* In-list search filter + Newest / Most-covered sort bar */}
             {res && res.articles.length > 0 && (
@@ -1275,7 +1246,71 @@ export default function App() {
             </ol>
           </>
         )}
-        <footer>{t('footer')}</footer>
+        <div className="support-card">
+          <div className="support-icon-wrap">
+            <img src={`${import.meta.env.BASE_URL}icons/kofi-coffee.png`} alt="" className="support-coffee-icon" width="54" height="54" />
+          </div>
+          <div className="support-content">
+            <h3 className="support-title">☕ THE WALL OF FAME</h3>
+            <p className="support-desc">
+              Support the development of NewNewz by buying me a coffee. Your contribution helps keep this app free and continuously improving!
+            </p>
+            <a href="https://ko-fi.com/nrnworld" target="_blank" rel="noopener noreferrer" className="support-kofi-btn">
+              <img src={`${import.meta.env.BASE_URL}icons/kofi-coffee.png`} alt="" className="support-btn-icon" width="16" height="16" />
+              <span>Click here to buy me a coffee</span>
+            </a>
+          </div>
+        </div>
+        <footer className="site-footer">
+          <strong>by nRnWorld</strong>
+          <div className="footer-links">
+            <span className="footer-email">
+              <a href="mailto:bynrnworld@gmail.com">bynrnworld@gmail.com</a>
+              <button
+                type="button"
+                className="copy-icon-btn"
+                onClick={() => {
+                  const email = 'bynrnworld@gmail.com'
+                  const fallback = () => {
+                    try {
+                      const ta = document.createElement('textarea')
+                      ta.value = email
+                      ta.setAttribute('readonly', '')
+                      ta.style.position = 'fixed'
+                      ta.style.opacity = '0'
+                      document.body.appendChild(ta)
+                      ta.select()
+                      ta.setSelectionRange(0, email.length)
+                      document.execCommand('copy')
+                      document.body.removeChild(ta)
+                    } catch { /* ignore */ }
+                  }
+                  if (navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(email).catch(fallback)
+                  } else {
+                    fallback()
+                  }
+                  setCopiedEmail(true)
+                  setTimeout(() => setCopiedEmail(false), 1800)
+                }}
+                title={copiedEmail ? t('copied') : 'bynrnworld@gmail.com'}
+                aria-label={copiedEmail ? t('copied') : 'Copy bynrnworld@gmail.com'}
+              >
+                {copiedEmail ? (
+                  '✓'
+                ) : (
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
+              </button>
+            </span>
+            <a href="https://nrnworld.one" target="_blank" rel="noopener noreferrer" className="footer-web">
+              nrnworld.one ↗
+            </a>
+          </div>
+        </footer>
       </aside>
 
       <InstallPrompt

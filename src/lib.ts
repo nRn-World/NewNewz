@@ -619,6 +619,7 @@ async function bingHeadlines(query: string, country: string, when: string, signa
 const GN_ENV: string | undefined = (import.meta.env.VITE_GN_URL as string | undefined) || 'https://newnewz-gn.vercel.app/api/gn'
 const GN_COOKIE = 'SOCS=CAESHAgBEhJnd3NfMjAyNDAxMDEtMF9SQzIaAmVuIAEaBgiAo_CmBg; CONSENT=YES+cb.20240101-01-p0.en+FX+999'
 let gnProxyDown = false
+let gnNext = 0
 
 async function googleHeadlines(query: string, country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
   const ed = editionFor(country)
@@ -632,15 +633,30 @@ async function googleHeadlines(query: string, country: string, when: string, sig
     try { return parseGoogleRssXml(directTxt, ed.lang) } catch { /* fallback */ }
   }
 
-  if (GN_ENV || (!gnProxyDown && !isLocalProxyBlocked())) {
+  // Pace Google News requests lightly (220ms) so parallel waves never trigger HTTP 429 rate-limits
+  const wait = gnNext - Date.now()
+  gnNext = Math.max(Date.now(), gnNext) + 220
+  if (wait > 0) await abortableSleep(wait, signal)
+
+  // 2. Local dev Vite proxy (/gn/rss/search) uses the user's own IP (zero shared-datacenter 429s)
+  if (!API && !gnProxyDown && !isLocalProxyBlocked()) {
     try {
-      const base = GN_ENV ?? `${API}/gn/rss/search`
-      const r = await fetch(`${base}?${qs}`, { signal: withTimeout(signal, GN_ENV || API ? 4200 : 2200) })
+      const r = await fetch(`/gn/rss/search?${qs}`, { signal: withTimeout(signal, 3500) })
       if (r.ok) return parseGoogleRssXml(await r.text(), ed.lang)
-      if (!GN_ENV) gnProxyDown = true
+      if (r.status === 404 || r.status >= 500) gnProxyDown = true
     } catch (e) {
       if (signal?.aborted) throw e
-      if (!GN_ENV) gnProxyDown = true
+      gnProxyDown = true
+    }
+  }
+
+  // 3. Vercel gn-proxy (production default)
+  if (GN_ENV) {
+    try {
+      const r = await fetch(`${GN_ENV}?${qs}`, { signal: withTimeout(signal, 4500) })
+      if (r.ok) return parseGoogleRssXml(await r.text(), ed.lang)
+    } catch (e) {
+      if (signal?.aborted) throw e
     }
   }
 
@@ -1133,6 +1149,7 @@ export function mergeAll(
     .flat()
     .filter((a) => !isNaN(+a.date))
     .map((a) => (+a.date > nowMs + 60_000 ? { ...a, date: clampDate(a.date, nowMs) } : a))
+    .sort((a, b) => +a.date - +b.date)
     .filter((a, i, all) => all.findIndex((b) => b.url === a.url || norm(b.title) === norm(a.title)) === i)
     .filter((a) => {
       if (!aliasList.length) return true
@@ -1141,7 +1158,6 @@ export function mergeAll(
       if (parentAliases?.length && !mentionsPlace(hay, parentAliases)) return false
       return true
     })
-    .sort((a, b) => +b.date - +a.date)
   return clusterArticles(unique, scope)
     .sort((a, b) => +b.date - +a.date)
     .slice(0, want)
@@ -1457,47 +1473,48 @@ export async function news(
   if (monthsBack > 0) {
     await Promise.all(primary.queries.map((q) => win(q, archiveWin)))
   } else if (!deep) {
-    await Promise.all([win(primary.queries[0], '1h'), win(primary.queries[0], '1d')])
+    const freshQ = !primary.mustMatchParent && primary.cleanName.length >= 4 ? `"${primary.cleanName}"` : primary.queries[0]
+    await Promise.all([win(freshQ, '1h'), win(freshQ, '1d'), win(freshQ, '7d')])
   } else {
-    // Run the last-hour window + all primary queries in parallel so the first 100 freshest stories arrive immediately
-    const freshest = win(primary.queries[0], '1h').catch(() => 0)
-    const initialSizes = await Promise.all(primary.queries.map((q) => win(q, '')))
-    const maxInitialRaw = Math.max(0, ...initialSizes)
-    onProgress?.(45)
+    // Always query the freshest 1d & 7d windows on the cleanest place query FIRST so breaking local news
+    // (like yesterday's fire at Kista Galleria) is never drowned out by older evergreen relevance results.
+    const freshQ = !primary.mustMatchParent && primary.cleanName.length >= 4 ? `"${primary.cleanName}"` : primary.queries[0]
+    const [n1d, n7d, nAll] = await Promise.all([
+      win(freshQ, '1d').catch(() => 0),
+      win(freshQ, '7d').catch(() => 0),
+      win(freshQ, '').catch(() => 0),
+    ])
+    const maxInitialRaw = Math.max(n1d, n7d, nAll)
+    onProgress?.(50)
 
     if (currentMerged().length < want) {
       if (maxInitialRaw >= FULL) {
-        // High-volume place (major city/country): walk recent windows in parallel waves of 3 (~3x faster)
+        // High-volume place (major city/country): walk recent windows in paced waves
         const waves = [
-          ['3h', '12h', '1d'],
-          ['2d', '7d', '30d'],
-          ['90d', '180d', '1y'],
+          ['1h', '12h'],
+          ['2d', '30d'],
+          ['90d', '1y'],
         ]
         for (let wi = 0; wi < waves.length; wi++) {
           if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
           if (currentMerged().length >= want) break
-          onProgress?.(Math.min(82, 48 + (wi + 1) * 11))
-          await Promise.all(waves[wi].map((w) => win(primary.queries[0], w)))
+          onProgress?.(Math.min(82, 52 + (wi + 1) * 10))
+          await Promise.all(waves[wi].map((w) => win(freshQ, w)))
         }
       } else {
-        // District, suburb, street, or town: sweep 7d, 30d, and 1y windows in parallel for fast 100-item fill
-        const sweepQueries = [
-          ...new Set([
-            ...(!primary.mustMatchParent && primary.cleanName.length >= 4 ? [`"${primary.cleanName}"`] : []),
-            primary.queries.find((q) => !q.endsWith('"')) ?? primary.queries[0],
-          ]),
-        ]
+        // District, suburb, street, or town: fill remaining up to 100 from 30d/1y + city-contextualized query
+        const extraTasks: Promise<number>[] = [win(freshQ, '30d'), win(freshQ, '1y')]
+        if (primary.queries[0] !== freshQ) {
+          extraTasks.push(win(primary.queries[0], '7d'), win(primary.queries[0], ''))
+        }
         onProgress?.(68)
-        await Promise.all(
-          ['7d', '30d', '1y'].flatMap((sw) => sweepQueries.map((sq) => win(sq, sw))),
-        )
+        await Promise.all(extraTasks)
         onProgress?.(82)
       }
     }
 
     if (currentMerged().length < want) {
-      const gq = !primary.mustMatchParent && primary.cleanName.length >= 4 ? `"${primary.cleanName}"` : primary.queries[0]
-      await gdeltHeadlines(gq, cc, '', signal)
+      await gdeltHeadlines(freshQ, cc, '', signal)
         .then((g) => {
           ok++
           if (g.length) {
@@ -1508,13 +1525,11 @@ export async function news(
         .catch(() => {})
     }
 
-    await freshest
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
 
     if (!isLocalProxyBlocked() && currentMerged().length < Math.min(want, 70)) {
-      const q = !primary.mustMatchParent && primary.cleanName.length >= 4 ? `"${primary.cleanName}"` : primary.queries[0]
       const w = wordsFor(cc)
-      const got = await Promise.allSettled(w.map((x) => bingHeadlines(`${q} ${x}`, cc, '', signal)))
+      const got = await Promise.allSettled(w.map((x) => bingHeadlines(`${freshQ} ${x}`, cc, '', signal)))
       got.forEach((x) => {
         if (x.status === 'fulfilled') {
           ok++

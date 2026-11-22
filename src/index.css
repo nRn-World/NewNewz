@@ -73,6 +73,27 @@ button{font:inherit;color:inherit;cursor:pointer}
 .note{margin:0;padding:6px 8px;border:1px dashed var(--red);color:var(--red);font-size:13px}
 .err{margin:0;color:var(--red);font-weight:700}
 footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var(--mu);font-size:11px}
+.site-footer{display:grid;gap:4px;justify-items:center;text-align:center}
+.site-footer strong{color:var(--ink);font:700 12px/1.2 'Courier Prime',monospace;letter-spacing:.06em}
+.footer-links{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 12px}
+.footer-email{display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.site-footer a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--red);text-underline-offset:2px}
+.site-footer a:hover{color:var(--red)}
+.copy-icon-btn{display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 4px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);font:700 11px/1 'Courier Prime',monospace;cursor:pointer}
+.copy-icon-btn:hover{background:var(--ink);color:var(--paper)}
+.footer-web{font-weight:700}
+
+/* Ko-fi / Wall of Fame support card */
+.support-card{margin-top:auto;display:flex;gap:12px;align-items:flex-start;padding:12px;border:1.5px solid rgba(56,189,248,.55);border-radius:10px;background:linear-gradient(145deg,#0f172a,#1c2742);box-shadow:0 4px 16px rgba(0,0,0,.22);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.support-icon-wrap{flex-shrink:0;padding:4px;border-radius:50%;background:rgba(15,23,42,.85)}
+.support-coffee-icon{width:54px;height:54px;border-radius:50%;object-fit:cover;display:block;box-shadow:0 4px 14px rgba(245,158,11,.4)}
+.support-content{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.support-title{margin:0;font-size:13px;font-weight:800;color:#38bdf8;letter-spacing:.04em;line-height:1.25}
+.support-desc{margin:0;font-size:11.5px;line-height:1.45;color:#cbd5e1}
+.support-kofi-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:8px 12px;border-radius:7px;background:linear-gradient(135deg,#38bdf8,#0284c7);color:#fff;font-size:12px;font-weight:700;text-decoration:none;box-shadow:0 3px 10px rgba(14,165,233,.35);transition:opacity .15s,transform .12s}
+.support-kofi-btn:hover{opacity:.93;transform:translateY(-1px);color:#fff}
+.support-btn-icon{width:16px;height:16px;border-radius:50%;object-fit:cover;flex-shrink:0}
+.support-card+.site-footer{margin-top:4px}
 [dir=rtl] .hits button{text-align:right}
 [dir=rtl] .panel{left:auto;right:18px}
 [dir=rtl] .crumbs .fav{margin-left:0;margin-right:auto}

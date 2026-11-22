@@ -128,7 +128,7 @@ describe('topics.ts STOP list, topicsOf & hotWords', () => {
 })
 
 describe('clusterArticles() multi-source event deduplication', () => {
-  it('clusters duplicate coverage of the same incident while keeping distinct local news separate', () => {
+  it('clusters duplicate coverage under the FIRST publisher while keeping distinct local news separate', () => {
     const list = [
       art('Kraftig brand i flerfamiljshus i Kista i natt', 'SVT Nyheter', 1),
       art('Stor brand i flerfamiljshus i Kista under natten', 'Dagens Nyheter', 2),
@@ -138,9 +138,39 @@ describe('clusterArticles() multi-source event deduplication', () => {
     ]
     const clustered = clusterArticles(list, 'Kista')
     expect(clustered).toHaveLength(3)
-    expect(clustered[0].title).toBe('Kraftig brand i flerfamiljshus i Kista i natt')
+    // Earliest publisher (Mitt i, 3h ago) leads the cluster; later outlets collapse into `also`
+    expect(clustered[0].source).toBe('Mitt i')
+    expect(clustered[0].title).toBe('Brand i flerfamiljshus i Kista – räddningstjänsten larmades under natten')
     expect(clustered[0].also).toHaveLength(2)
-    expect(clustered[0].also?.map((x) => x.source)).toEqual(['Dagens Nyheter', 'Mitt i'])
+    expect(clustered[0].also?.map((x) => x.source)).toEqual(['Dagens Nyheter', 'SVT Nyheter'])
+  })
+
+  it('collapses repeated title-contained reposts (e.g. Hotell Kåkbrinken across dates/languages) under the earliest entry', () => {
+    const list = [
+      art('Hotell Kåkbrinken', 'watch.plex.tv', 24 * 7),
+      art('Hotell Kåkbrinkenに関するトリビア', 'watch.plex.tv', 24 * 217),
+      art('Hotell Kåkbrinken (1946)', 'IMDb', 24 * 253),
+      art('Where to Watch Hotell Kåkbrinken', 'Moviefone', 24 * 470),
+    ]
+    const clustered = clusterArticles(list, 'Kåkbrinken')
+    expect(clustered).toHaveLength(1)
+    expect(clustered[0].source).toBe('Moviefone')
+    expect(clustered[0].also).toHaveLength(3)
+  })
+
+  it('deduplicates cross-language coverage once translated to the same language', () => {
+    const list = [
+      art('Stor explosion vid industriområde i Kista', 'SVT Nyheter', 1, {
+        orig: 'Stor explosion vid industriområde i Kista',
+      }),
+      art('Kraftig explosion vid industriområde i Kista', 'Reuters', 2, {
+        orig: 'Large explosion at industrial area in Kista',
+      }),
+    ]
+    const clustered = clusterArticles(list, 'Kista')
+    expect(clustered).toHaveLength(1)
+    expect(clustered[0].source).toBe('Reuters')
+    expect(clustered[0].also?.map((x) => x.source)).toEqual(['SVT Nyheter'])
   })
 
   it('never merges forum threads even when titles overlap', () => {

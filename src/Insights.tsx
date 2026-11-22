@@ -54,13 +54,12 @@ export function ProgressBox({
   )
 }
 
-/** Three views (everything, serious, politics) with counts; the line above them says what the place is about right now. */
+/** Three views (everything, serious, politics) with counts. */
 export function TopicBar({ articles, topic, setTopic, t }: { articles: Article[]; topic: string; setTopic: (t: string) => void; t: T }) {
   const counts = topicCounts(articles)
   if (counts.length === 0) return null
   return (
     <div className="topics">
-      <p className="sumline">{t('sumNow')} {counts.slice(0, 3).map(([id, n]) => `${n} ${t('t' + id).toLowerCase()}`).join(' · ')}</p>
       <div className="chips">
         <button className={!topic ? 'chip on' : 'chip'} aria-pressed={!topic} onClick={() => setTopic('')}>{t('tAll')} ({articles.length})</button>
         {['Serious', 'Politics'].map((id) => (
