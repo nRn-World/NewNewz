@@ -11,7 +11,7 @@
 ![MapLibre](https://img.shields.io/badge/MapLibre-3D%20Globe-396cb2)
 ![Web Push](https://img.shields.io/badge/Web%20Push-RFC%208291%20%2B%20VAPID-d9381e)
 ![PWA](https://img.shields.io/badge/PWA-Installable-5a0fc8)
-![Languages](https://img.shields.io/badge/Languages-7-brightgreen)
+![Languages](https://img.shields.io/badge/Languages-8-brightgreen)
 
 <img src="docs/globe.png" alt="NewNewz — interactive 3D globe with a classic broadsheet side panel" width="900">
 
@@ -55,7 +55,7 @@ Zoom seamlessly from the entire planet down to **country → province/state → 
 | 🗞️ **Broadsheet Print Edition & "My Paper"** | Render any place's feed—or a combined front page of all your watched favourites—into a multi-page vintage newspaper layout, complete with shareable **newspaper clipping cards**. |
 | 📖 **Inline Reader Cards & Bookmarks** | Expand stories inline for article previews and thumbnails, cluster duplicate multi-source coverage of the same incident, and bookmark stories for offline reference. |
 | 🌦️ **Live Local Weather & Heat Overlay** | Displays current local weather (with severe-weather indicators), neighbourhood news-intensity heatmaps, topic breakdown bars, and historical archive time-travel (`1m`, `3m`, `6m`, `1y`). |
-| 🌍 **7 Languages with Auto-Translation** | Full UI and automatic headline/snippet translation across **English**, **Svenska**, **Türkçe**, **العربية (RTL)**, **Español**, **Français**, and **Deutsch**. |
+| 🌍 **8 Languages with Auto-Translation** | Full UI and automatic headline/snippet translation across **English**, **Svenska**, **Türkçe**, **العربية (RTL)**, **Español**, **Français**, **Deutsch**, and **Kurdî**. |
 
 ---
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type BeforeInstallPromptEvent,
   canUseNotifications,
@@ -124,8 +124,11 @@ export default function App() {
 
   const t = useCallback((k: Parameters<typeof tr>[1], v?: Record<string, string>) => tr(lang, k, v), [lang])
   const te = (m: string) => tr(lang, m.startsWith('err.') ? (m as Parameters<typeof tr>[1]) : 'err.source')
-  const unread = Object.fromEntries(Object.entries(freshArts).map(([k, v]) => [k, v.length]))
-  const totalUnread = Object.values(unread).reduce((a, b) => a + b, 0)
+  const unread = useMemo(
+    () => Object.fromEntries(Object.entries(freshArts).map(([k, v]) => [k, v.length])),
+    [freshArts],
+  )
+  const totalUnread = useMemo(() => Object.values(unread).reduce((a, b) => a + b, 0), [unread])
   const refDate = stamp ?? bootDate
   const formattedDate = fullDate(refDate, lang)
 
@@ -461,6 +464,8 @@ export default function App() {
     const ctrl = new AbortController()
     let running = false
     const check = async () => {
+      // Skip background-tab polling to conserve battery & API quota; resume immediately when visible.
+      if (document.visibilityState !== 'visible') return
       // With many favourites one round outlasts the minute between rounds; two overlapping rounds would each
       // write their own copy of the seen-list and alert about the same story twice.
       if (running) return
@@ -516,10 +521,16 @@ export default function App() {
       try { localStorage.setItem('newnewz.seen', JSON.stringify(seen)) } catch { /* private mode */ }
     }
     void check()
-    const id = setInterval(check, 60_000)
+    // When server/native background push is already active, poll in-tab less aggressively (4 min vs 60 s).
+    const id = setInterval(check, pushActive ? 240_000 : 60_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void check()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       ctrl.abort()
       clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [favs, pushActive])
 
@@ -685,9 +696,9 @@ export default function App() {
   const cycleSheet = () => setSheetSnap((s) => (s === 'half' ? 'full' : s === 'full' ? 'peek' : 'half'))
 
   const onlyNew = !!only && !!place && only.key === label(place) && level === 0 && tab === 'news'
-  const savedUrlSet = new Set(saved.map((s) => s.url))
+  const savedUrlSet = useMemo(() => new Set(saved.map((s) => s.url)), [saved])
 
-  const visibleArticles = (() => {
+  const visibleArticles = useMemo(() => {
     const base = (onlyNew ? only!.items : res?.articles) ?? []
     const qNorm = norm(newsFilter)
     const filtered = base.filter((a) => {
@@ -703,7 +714,7 @@ export default function App() {
     }
     // Strict chronological newest-first order (#01 is always the latest item)
     return [...filtered].sort((a, b) => +b.date - +a.date)
-  })()
+  }, [onlyNew, only, res, newsFilter, topic, tab, sortBy])
 
   const nearbyScope = res?.articles.find((a) => a.exactMatch === false)?.scopeTag
 

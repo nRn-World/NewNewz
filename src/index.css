@@ -276,6 +276,7 @@ footer{margin-top:auto;padding-top:8px;border-top:1px solid var(--ink);color:var
 .modal .paper-x{position:absolute;top:10px;right:10px}
 .alertbox{padding:4px 2px 8px;flex:0 0 100%;border-top:1px dashed var(--ink)}
 .alertbox .chips{margin-top:4px}
+.alertbox select{font:700 12px 'Courier Prime',monospace;padding:2px 6px;border:2px solid var(--ink);background:var(--paper);color:var(--ink)}
 .settings{display:grid;gap:6px;border-top:1px solid var(--ink);padding-top:8px;font-size:12px}
 .settings h4{margin:0;text-transform:uppercase;letter-spacing:.08em;font-size:12px}
 .settings .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}

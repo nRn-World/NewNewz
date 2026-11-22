@@ -1,7 +1,9 @@
 name: Deploy Cloudflare Worker
 on:
   push:
-    branches: [main, 'arena/**']
+    # main is deployed by deploy.yml (which also feeds the Worker URL into the Pages build);
+    # keep this workflow for preview/arena branches and manual dispatches to avoid duplicate deploys.
+    branches: ['arena/**']
     paths:
       - 'worker/**'
       - 'src/topicRules.ts' # bundled into the Worker

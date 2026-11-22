@@ -22,6 +22,7 @@ import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -40,6 +41,7 @@ public class MainActivity extends Activity {
     private static final int REQ_NOTIFICATIONS = 1001;
     private static final int REQ_LOCATION = 1002;
     private static final String PREF_ASKED_NOTIF = "asked_notif_once";
+    private static final int MAX_FETCH_BYTES = 3 * 1024 * 1024;
 
     private WebView webView;
     private String pendingGeoOrigin;
@@ -103,6 +105,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (webView != null) {
+            webView.onResume();
+        }
         pushPermStateToJs();
         long now = System.currentTimeMillis();
         if (now - lastResumePollMs > 120_000L) {
@@ -117,6 +122,14 @@ public class MainActivity extends Activity {
             t.setDaemon(true);
             t.start();
         }
+    }
+
+    @Override
+    protected void onPause() {
+        if (webView != null) {
+            webView.onPause();
+        }
+        super.onPause();
     }
 
     /**
@@ -165,7 +178,7 @@ public class MainActivity extends Activity {
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
-        s.setUserAgentString(s.getUserAgentString() + " NewNewzAndroidAPK/1.2");
+        s.setUserAgentString(s.getUserAgentString() + " NewNewzAndroidAPK/1.5");
 
         wv.addJavascriptInterface(new AndroidBridge(), "NewNewzAndroid");
 
@@ -184,6 +197,22 @@ public class MainActivity extends Activity {
                 }
                 openExternalBrowser(uri);
                 return true;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request != null && request.isForMainFrame()) {
+                    String offlineHtml = "<!doctype html><html><head><meta charset='utf-8'>"
+                            + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                            + "<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#14110c;color:#16130e;font-family:Georgia,serif;padding:24px}"
+                            + ".card{max-width:380px;background:#efe6cf;border:2px solid #16130e;box-shadow:6px 6px 0 #c8321e;padding:24px;text-align:center}"
+                            + "h1{margin:0 0 8px;font-size:32px}p{margin:0 0 18px;font-family:monospace;font-size:14px;color:#5a4e3c}"
+                            + "a{display:inline-block;padding:10px 18px;background:#c8321e;color:#fff;text-decoration:none;border:2px solid #16130e;font-family:monospace;font-weight:700}</style>"
+                            + "</head><body><div class='card'><h1>NewNewz</h1>"
+                            + "<p>No internet connection. Check your connection and try again.</p>"
+                            + "<a href='" + HOME_URL + "'>Retry</a></div></body></html>";
+                    view.loadDataWithBaseURL(HOME_URL, offlineHtml, "text/html", "UTF-8", null);
+                }
             }
         });
 
@@ -421,8 +450,15 @@ public class MainActivity extends Activity {
                         InputStream is = conn.getInputStream();
                         ByteArrayOutputStream bos = new ByteArrayOutputStream();
                         byte[] buf = new byte[8192];
+                        int total = 0;
                         int n;
                         while ((n = is.read(buf)) != -1) {
+                            total += n;
+                            if (total > MAX_FETCH_BYTES) {
+                                is.close();
+                                deliverFetchResult(reqId, false, "");
+                                return;
+                            }
                             bos.write(buf, 0, n);
                         }
                         is.close();

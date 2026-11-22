@@ -7,9 +7,11 @@ import {
 } from '../androidBridge'
 import { type Area, type Areas, bounds, inside, kidsOf, labelPoint, link, norm } from '../areas'
 import { toggleSavedItem } from '../bookmarks'
+import { wrapLines } from '../clipCard'
 import { clusterArticles } from '../cluster'
 import { editionFor, wordsFor } from '../editions'
 import { localSubreddits } from '../forums'
+import { LruCache } from '../lru'
 import {
   type Article,
   type Place,
@@ -876,5 +878,78 @@ describe('what the search may find', () => {
     expect(isSearchable('railway', 'subway_entrance', 'Vällingby', false)).toBe(false)
     expect(isSearchable('highway', 'bus_stop', 'Kirunaplan', false)).toBe(false)
     expect(isSearchable('building', 'train_station', 'Stockholms centralstation', true)).toBe(false)
+  })
+})
+
+describe('LruCache bounded memory & TTL', () => {
+  it('evicts the least recently used entry when capacity is exceeded', () => {
+    const cache = new LruCache<string, number>(2)
+    cache.set('a', 1)
+    cache.set('b', 2)
+    expect(cache.get('a')).toBe(1) // refreshes 'a', making 'b' oldest
+    cache.set('c', 3)
+    expect(cache.get('b')).toBeUndefined()
+    expect(cache.get('a')).toBe(1)
+    expect(cache.get('c')).toBe(3)
+    expect(cache.size).toBe(2)
+  })
+})
+
+describe('clipCard.ts wrapLines()', () => {
+  const ctx = { measureText: (s: string) => ({ width: s.length * 10 }) }
+
+  it('handles repeated words without falsely truncating or miscalculating remainder', () => {
+    const lines = wrapLines(ctx, 'Fire in the park in the north', 140, 3)
+    expect(lines).toEqual(['Fire in the', 'park in the', 'north'])
+  })
+
+  it('adds ellipsis cleanly when exceeding maxLines', () => {
+    const lines = wrapLines(ctx, 'Breaking news in Stockholm about the major storm tonight', 160, 2)
+    expect(lines).toHaveLength(2)
+    expect(lines[1].endsWith('…')).toBe(true)
+  })
+})
+
+describe('Worker SSRF redirect protection & /push/test origin guard', () => {
+  it('blocks /meta when an allowed HTTPS host redirects to a private IP', async () => {
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(null, { status: 302, headers: { Location: 'https://169.254.169.254/latest/meta-data/' } })) as typeof fetch
+    try {
+      const res = await worker.fetch(
+        new Request('https://newnewz-proxy.bynrnworld.workers.dev/meta?url=https%3A%2F%2Fexample.com%2Farticle'),
+        {},
+      )
+      expect(res.status).toBe(403)
+    } finally {
+      globalThis.fetch = origFetch
+    }
+  })
+
+  it('blocks /police-feed when an allowlisted police host redirects to a non-police host', async () => {
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(null, { status: 302, headers: { Location: 'https://evil.example/payload' } })) as typeof fetch
+    try {
+      const res = await worker.fetch(
+        new Request('https://newnewz-proxy.bynrnworld.workers.dev/police-feed?url=https%3A%2F%2Fpolisen.se%2Fapi%2Fevents'),
+        {},
+      )
+      expect(res.status).toBe(403)
+    } finally {
+      globalThis.fetch = origFetch
+    }
+  })
+
+  it('rejects /push/test without a trusted Origin header', async () => {
+    const res = await worker.fetch(
+      new Request('https://newnewz-proxy.bynrnworld.workers.dev/push/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: { endpoint: 'https://fcm.googleapis.com/x', keys: { p256dh: 'a', auth: 'b' } } }),
+      }),
+      {},
+    )
+    expect(res.status).toBe(403)
   })
 })

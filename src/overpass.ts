@@ -1,6 +1,7 @@
 // Levels below the country datasets (neighbourhoods, streets) come straight from OpenStreetMap via Overpass,
 // with automatic mirror failover and persistent IndexedDB caching so revisited areas open instantaneously.
 import { type Area, at, bounds, inRing, labelPoint, polys } from './areas'
+import { LruCache } from './lru'
 
 type Pos = [number, number]
 
@@ -11,7 +12,7 @@ const ENDPOINTS = [
 ]
 
 let preferredMirror = 0
-const memCache = new Map<string, { elements: unknown[] }>()
+const memCache = new LruCache<string, { elements: unknown[] }>(60)
 const DB_NAME = 'newnewz-geo'
 const STORE = 'overpass'
 const TTL_MS = 7 * 24 * 3600 * 1000 // 7 days

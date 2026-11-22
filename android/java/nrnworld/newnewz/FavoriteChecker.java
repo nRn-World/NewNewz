@@ -40,6 +40,8 @@ public final class FavoriteChecker {
     private static final String APP_BASE = "https://nrnworld.one/NewNewz/";
     public static final int JOB_ID = 4201;
     private static final int MAX_FAVS = 40;
+    private static final int MAX_HTTP_BYTES = 3 * 1024 * 1024;
+    private static final String ANDROID_UA = "Mozilla/5.0 (Android; NewNewzAndroidAPK/1.5)";
 
     private static final Pattern ITEM_RE = Pattern.compile("<item\\b[^>]*>([\\s\\S]*?)</item>", Pattern.CASE_INSENSITIVE);
     private static final Pattern TITLE_RE = Pattern.compile("<title>(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([\\s\\S]*?))</title>", Pattern.CASE_INSENSITIVE);
@@ -220,8 +222,14 @@ public final class FavoriteChecker {
             InputStream is = conn.getInputStream();
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             byte[] buf = new byte[4096];
+            int total = 0;
             int n;
             while ((n = is.read(buf)) != -1) {
+                total += n;
+                if (total > MAX_HTTP_BYTES) {
+                    is.close();
+                    return null;
+                }
                 bos.write(buf, 0, n);
             }
             is.close();
@@ -308,7 +316,7 @@ public final class FavoriteChecker {
                         if ("SE".equals(cc)) {
                             if (!triedPolisen) {
                                 triedPolisen = true;
-                                String pJson = httpGetString("https://polisen.se/api/events", StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewNewzAPK/1.3)");
+                                String pJson = httpGetString("https://polisen.se/api/events", StandardCharsets.UTF_8, ANDROID_UA);
                                 if (pJson != null) {
                                     networkOk++;
                                     try { cachedPolisen = new JSONArray(pJson); } catch (Exception ignored) {}
@@ -341,7 +349,7 @@ public final class FavoriteChecker {
                         if ("TH".equals(cc) && "phuket".equals(mustKey)) {
                             if (!triedPhuket) {
                                 triedPhuket = true;
-                                cachedPhuketXml = httpGetString("https://phuket.tourist.police.go.th/feed/", StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewNewzAPK/1.3)");
+                                cachedPhuketXml = httpGetString("https://phuket.tourist.police.go.th/feed/", StandardCharsets.UTF_8, ANDROID_UA);
                                 if (cachedPhuketXml != null) networkOk++;
                             }
                             if (cachedPhuketXml != null) {
@@ -365,7 +373,7 @@ public final class FavoriteChecker {
                         }
 
                         String bingUrl = "https://www.bing.com/news/search?q=" + URLEncoder.encode(newsQ, "UTF-8") + "&format=rss&cc=" + cc + "&sortbydate=1";
-                        String bingXml = httpGetString(bingUrl, StandardCharsets.UTF_8, "Mozilla/5.0 (Android; NewNewzAPK/1.3)");
+                        String bingXml = httpGetString(bingUrl, StandardCharsets.UTF_8, ANDROID_UA);
                         if (bingXml != null) {
                             networkOk++;
                             Matcher im = ITEM_RE.matcher(bingXml);
@@ -389,7 +397,7 @@ public final class FavoriteChecker {
 
                     if (wantForum && !forumQ.isEmpty()) {
                         String rdUrl = "https://www.reddit.com/search.json?raw_json=1&sort=new&limit=12&q=" + URLEncoder.encode(forumQ, "UTF-8");
-                        String rdJson = httpGetString(rdUrl, StandardCharsets.UTF_8, "NewNewzAndroidAPK/1.3");
+                        String rdJson = httpGetString(rdUrl, StandardCharsets.UTF_8, "NewNewzAndroidAPK/1.5");
                         if (rdJson != null) {
                             networkOk++;
                             try {
@@ -469,7 +477,7 @@ public final class FavoriteChecker {
             conn.setReadTimeout(12000);
             conn.setDoOutput(true);
             conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            conn.setRequestProperty("User-Agent", "NewNewzAndroidAPK/1.3");
+            conn.setRequestProperty("User-Agent", "NewNewzAndroidAPK/1.5");
 
             byte[] outBytes = reqBody.toString().getBytes(StandardCharsets.UTF_8);
             OutputStream os = conn.getOutputStream();
@@ -602,7 +610,7 @@ public final class FavoriteChecker {
                         String kind = first.optString("kind", "news");
                         boolean isForum = "forum".equals(kind);
                         String titlePrefix = (isForum ? "\uD83D\uDCAC " : "\uD83D\uDCF0 ") + label;
-                        String firstTitle = first.optString("title", "Ny händelse");
+                        String firstTitle = first.optString("title", "New update");
                         String bodyText = fresh.size() > 1
                                 ? firstTitle + " (+" + (fresh.size() - 1) + ")"
                                 : firstTitle;

@@ -244,6 +244,23 @@ export default function FavsPanel({
         </button>
         {isAlertExpanded && (
           <div className="alertbox">
+            {catNames.length > 0 && (
+              <div className="row" style={{ marginBottom: 6 }}>
+                <label className="row" style={{ gap: 6 }}>
+                  <small>{t('category')}:</small>
+                  <select
+                    value={f.cat ?? ''}
+                    aria-label={`${t('category')} ${k}`}
+                    onChange={(e) => setCatOf(f, e.target.value)}
+                  >
+                    <option value="">{t('noCat')}</option>
+                    {catNames.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
             <div className="row" style={{ marginBottom: 6 }}>
               <small>{t('alertSources')}:</small>
               <label className="row" style={{ gap: 3 }}>

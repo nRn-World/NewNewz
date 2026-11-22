@@ -1,5 +1,11 @@
 // Vercel function: hardened CORS proxy for Google News RSS (Google blocks Cloudflare's IPs, so this runs on Vercelarn1). Cached 60 s.
-const DEFAULT_ALLOWED = ['https://nrnworld.one', 'https://nrn-world.github.io', 'http://localhost:5173', 'http://localhost:4173']
+const DEFAULT_ALLOWED = [
+  'https://nrnworld.one',
+  'https://www.nrnworld.one',
+  'https://nrn-world.github.io',
+  'http://localhost:5173',
+  'http://localhost:4173',
+]
 const SAFE_PARAMS = ['q', 'hl', 'gl', 'ceid']
 
 function allowedOrigins() {

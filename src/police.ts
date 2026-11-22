@@ -2,6 +2,7 @@ import { nativeAndroidFetchText } from './androidBridge'
 import { norm } from './areas'
 import { editionFor } from './editions'
 import type { Article, Part, Place } from './lib'
+import { LruCache } from './lru'
 
 export type DirectPoliceFeed = {
   url: string
@@ -1031,7 +1032,7 @@ export function policeSearchQueries(
   return out
 }
 
-const directFeedCache = new Map<string, { at: number; items: Article[] }>()
+const directFeedCache = new LruCache<string, Article[]>(80, 120_000)
 
 async function fetchPoliceRawText(targetUrl: string, apiBase: string, signal?: AbortSignal): Promise<string> {
   // 1. Direct device fetch inside native Android APK (0 Cloudflare Worker requests!)
@@ -1085,13 +1086,13 @@ export async function fetchDirectPoliceFeeds(
   const settled = await Promise.allSettled(
     feeds.map(async (f) => {
       const cached = directFeedCache.get(f.url)
-      if (cached && Date.now() - cached.at < 120_000) return cached.items
+      if (cached) return cached
       const raw = await fetchPoliceRawText(f.url, apiBase, signal)
       const items =
         f.kind === 'polisen-json'
           ? parsePolisenEventsJson(raw, f.lang)
           : parsePoliceFeedXml(raw, f.source, f.lang, f.jurisdiction)
-      directFeedCache.set(f.url, { at: Date.now(), items })
+      directFeedCache.set(f.url, items)
       return items
     }),
   )

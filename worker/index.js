@@ -571,6 +571,77 @@ function placeSignature(p) {
   return `${cc}|${mustKey}|${normStr(cleanOwn)}|${wn}|${wf}`
 }
 
+/** Rejects non-HTTPS, credentials, custom ports, localhost, IPv6 literals, and private/link-local/CGNAT IPv4 ranges. */
+function isSafePublicMetaUrl(parsed) {
+  const host = parsed.hostname.toLowerCase()
+  return (
+    parsed.protocol === 'https:' &&
+    !parsed.username &&
+    !parsed.password &&
+    !parsed.port &&
+    host !== 'localhost' &&
+    !host.endsWith('.local') &&
+    !host.endsWith('.internal') &&
+    !/^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(host) &&
+    !host.includes(':')
+  )
+}
+
+const ALLOWED_POLICE_HOSTS = [
+  /(^|\.)polisen\.se$/i,
+  /(^|\.)politiet\.no$/i,
+  /^via\.ritzau\.dk$/i,
+  /(^|\.)politi\.dk$/i,
+  /(^|\.)poliisi\.fi$/i,
+  /(^|\.)politie\.nl$/i,
+  /(^|\.)police\.go\.th$/i,
+  /(^|\.)royalthaipolice\.go\.th$/i,
+  /(^|\.)touristpolice\.go\.th$/i,
+  /(^|\.)cib\.go\.th$/i,
+  /(^|\.)police\.uk$/i,
+  /(^|\.)police\.govt\.nz$/i,
+  /(^|\.)mypolice\.qld\.gov\.au$/i,
+  /(^|\.)police\.(nsw|vic|wa|sa|tas)\.gov\.au$/i,
+  /(^|\.)afp\.gov\.au$/i,
+  /(^|\.)rcmp-grc\.gc\.ca$/i,
+  /(^|\.)europol\.europa\.eu$/i,
+  /(^|\.)interpol\.int$/i,
+]
+
+function isAllowedPoliceUrl(parsed) {
+  const host = parsed.hostname.toLowerCase()
+  return (
+    parsed.protocol === 'https:' &&
+    !parsed.username &&
+    !parsed.password &&
+    !parsed.port &&
+    ALLOWED_POLICE_HOSTS.some((re) => re.test(host))
+  )
+}
+
+/** Follows up to `maxRedirects` redirects while re-validating every hop against `validateUrl` (prevents 302 SSRF bypass). */
+async function safeFetch(initialUrl, init, validateUrl, maxRedirects = 3) {
+  let current = initialUrl
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    const r = await fetch(current, { ...init, redirect: 'manual' })
+    if (r.status >= 300 && r.status < 400) {
+      const loc = r.headers.get('Location')
+      if (!loc || hop === maxRedirects) return null
+      let next
+      try {
+        next = new URL(loc, current)
+      } catch {
+        return null
+      }
+      if (!validateUrl(next)) return null
+      current = next
+      continue
+    }
+    return r
+  }
+  return null
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url)
@@ -645,6 +716,7 @@ export default {
     }
 
     if (url.pathname === '/push/test' && req.method === 'POST') {
+      if (!origin || !isTrustedOrigin(origin, env)) return new Response('Forbidden', { status: 403, headers: cors })
       const vapid = await getOrCreateVapid(env)
       if (!vapid) return new Response('Push not available', { status: 503, headers: cors })
       try {
@@ -730,7 +802,7 @@ export default {
       }
     }
 
-    // --- Reader card metadata (/meta?url=...) with strict SSRF protection ---
+    // --- Reader card metadata (/meta?url=...) with strict SSRF & redirect protection ---
     if (url.pathname === '/meta' && req.method === 'GET') {
       const targetStr = url.searchParams.get('url') ?? ''
       let parsed
@@ -739,21 +811,18 @@ export default {
       } catch {
         return new Response('Invalid URL', { status: 400, headers: cors })
       }
-      const host = parsed.hostname.toLowerCase()
-      const blockedHost =
-        parsed.protocol !== 'https:' ||
-        host === 'localhost' ||
-        host.endsWith('.local') ||
-        host.endsWith('.internal') ||
-        /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) ||
-        host.includes(':')
-      if (blockedHost) return new Response('Forbidden host', { status: 403, headers: cors })
+      if (!isSafePublicMetaUrl(parsed)) return new Response('Forbidden host', { status: 403, headers: cors })
       try {
-        const r = await fetch(parsed, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzReader/1.0)' },
-          cf: { cacheTtl: 1800, cacheEverything: true },
-          signal: AbortSignal.timeout(5000),
-        })
+        const r = await safeFetch(
+          parsed,
+          {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewNewzReader/1.0)' },
+            cf: { cacheTtl: 1800, cacheEverything: true },
+            signal: AbortSignal.timeout(5000),
+          },
+          isSafePublicMetaUrl,
+        )
+        if (!r) return new Response('Forbidden redirect', { status: 403, headers: cors })
         if (!r.ok) return new Response('{}', { headers: { ...cors, 'Content-Type': 'application/json' } })
         const html = (await r.text()).slice(0, 65_000)
         const pickMeta = (re) => {
@@ -775,7 +844,7 @@ export default {
       }
     }
 
-    // --- Official Government & Local Police JSON/RSS Feed Proxy (strict hostname allowlist) ---
+    // --- Official Government & Local Police JSON/RSS Feed Proxy (strict hostname & redirect allowlist) ---
     if (url.pathname === '/police-feed' && req.method === 'GET') {
       const targetStr = url.searchParams.get('url') ?? ''
       let parsed
@@ -784,45 +853,23 @@ export default {
       } catch {
         return new Response('Invalid URL', { status: 400, headers: cors })
       }
-      const host = parsed.hostname.toLowerCase()
-      const allowedPoliceHost =
-        parsed.protocol === 'https:' &&
-        !parsed.username &&
-        !parsed.password &&
-        !parsed.port &&
-        [
-          /(^|\.)polisen\.se$/i,
-          /(^|\.)politiet\.no$/i,
-          /^via\.ritzau\.dk$/i,
-          /(^|\.)politi\.dk$/i,
-          /(^|\.)poliisi\.fi$/i,
-          /(^|\.)politie\.nl$/i,
-          /(^|\.)police\.go\.th$/i,
-          /(^|\.)royalthaipolice\.go\.th$/i,
-          /(^|\.)touristpolice\.go\.th$/i,
-          /(^|\.)cib\.go\.th$/i,
-          /(^|\.)police\.uk$/i,
-          /(^|\.)police\.govt\.nz$/i,
-          /(^|\.)mypolice\.qld\.gov\.au$/i,
-          /(^|\.)police\.(nsw|vic|wa|sa|tas)\.gov\.au$/i,
-          /(^|\.)afp\.gov\.au$/i,
-          /(^|\.)rcmp-grc\.gc\.ca$/i,
-          /(^|\.)europol\.europa\.eu$/i,
-          /(^|\.)interpol\.int$/i,
-        ].some((re) => re.test(host))
-
-      if (!allowedPoliceHost) {
+      if (!isAllowedPoliceUrl(parsed)) {
         return new Response('Forbidden police host', { status: 403, headers: cors })
       }
       try {
-        const r = await fetch(parsed, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPoliceReader/1.0; +https://nrnworld.one/NewNewz/)',
-            Accept: 'application/json, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+        const r = await safeFetch(
+          parsed,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; NewNewzPoliceReader/1.0; +https://nrnworld.one/NewNewz/)',
+              Accept: 'application/json, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+            },
+            cf: { cacheTtl: 120, cacheEverything: true },
+            signal: AbortSignal.timeout(8000),
           },
-          cf: { cacheTtl: 120, cacheEverything: true },
-          signal: AbortSignal.timeout(8000),
-        })
+          isAllowedPoliceUrl,
+        )
+        if (!r) return new Response('Forbidden police redirect', { status: 403, headers: cors })
         if (!r.ok) {
           return new Response('Upstream police feed error', { status: 502, headers: { ...cors, 'Cache-Control': 'no-store' } })
         }

@@ -89,8 +89,13 @@ jobs:
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           SECRET_KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           KS_B64="$SECRET_KS_B64"
+          if [ -z "$KS_B64" ]; then
+            echo "::warning title=Android Keystore::ANDROID_KEYSTORE_BASE64 secret is not set. Store your release keystore, ANDROID_KEYSTORE_PASS, and ANDROID_KEY_ALIAS in GitHub Secrets instead of SUBS_KV."
+          fi
           if [ -z "$KS_B64" ] && [ -n "$CF_TOKEN" ]; then
             ACCT_ID=$(curl -sf -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts?per_page=5" | jq -r '.result[0].id // empty' || true)
             if [ -z "$ACCT_ID" ]; then

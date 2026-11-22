@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { type BeforeInstallPromptEvent, apkDownloadUrl, isIosDevice } from './androidBridge'
 
 type T = (k: string, v?: Record<string, string>) => string
@@ -19,6 +19,18 @@ export default function InstallPrompt({
   t,
 }: Props) {
   const [downloading, setDownloading] = useState(false)
+  const closeRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    closeRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onDismiss()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onDismiss])
+
   if (!open) return null
 
   const iconUrl = `${import.meta.env.BASE_URL}icons/icon-192.png`
@@ -37,9 +49,15 @@ export default function InstallPrompt({
   }
 
   return (
-    <div className="apk-backdrop" role="dialog" aria-modal="true" aria-labelledby="apk-dialog-title">
+    <div
+      className="apk-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="apk-dialog-title"
+      onClick={(e) => e.target === e.currentTarget && onDismiss()}
+    >
       <div className="apk-modal">
-        <button type="button" className="apk-close" onClick={onDismiss} aria-label={t('close')}>
+        <button ref={closeRef} type="button" className="apk-close" onClick={onDismiss} aria-label={t('close')}>
           ×
         </button>
 

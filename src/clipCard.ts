@@ -7,24 +7,30 @@ export type ClipInput = {
   url: string
 }
 
-function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
+export function wrapLines(ctx: { measureText: (text: string) => { width: number } }, text: string, maxWidth: number, maxLines: number): string[] {
   const words = text.trim().split(/\s+/).filter(Boolean)
+  if (!words.length || maxLines <= 0) return []
   const lines: string[] = []
   let line = ''
-  for (const w of words) {
+  let overflowed = false
+
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]
     const test = line ? `${line} ${w}` : w
     if (ctx.measureText(test).width > maxWidth && line) {
+      if (lines.length === maxLines - 1) {
+        overflowed = true
+        break
+      }
       lines.push(line)
       line = w
-      if (lines.length >= maxLines - 1) break
     } else {
       line = test
     }
   }
+
   if (line && lines.length < maxLines) {
-    const idx = words.indexOf(line.split(' ')[0])
-    const rest = words.slice(Math.max(0, idx)).join(' ')
-    if (ctx.measureText(rest).width > maxWidth && lines.length === maxLines - 1) {
+    if (overflowed || ctx.measureText(line).width > maxWidth) {
       let trimmed = line
       while (trimmed.length > 3 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
         trimmed = trimmed.slice(0, -1)

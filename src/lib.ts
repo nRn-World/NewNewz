@@ -9,6 +9,7 @@ import { norm } from './areas'
 import { clusterArticles, type RelatedItem } from './cluster'
 import { editionFor, wordsFor } from './editions'
 import { lemmyDiscussions, localSubreddits, regionalDiscussions } from './forums'
+import { LruCache } from './lru'
 import { fetchDirectPoliceFeeds, isOfficialPoliceUrl, policeSearchQueries } from './police'
 import { STOP, topicsOf } from './topics'
 import { encodePlace } from './urlState'
@@ -245,8 +246,8 @@ export function rankByLevel(places: Place[]): Place[] {
   return [...places].sort((a, b) => LEVEL_RANK[a.parts[0].level] - LEVEL_RANK[b.parts[0].level])
 }
 
-const searchCache = new Map<string, Place[]>()
-const suggestCache = new Map<string, Place[]>()
+const searchCache = new LruCache<string, Place[]>(150)
+const suggestCache = new LruCache<string, Place[]>(200)
 
 /**
  * Suggestions while the user is still typing. Photon is built for this and forgives typos ("Stokholm" finds
@@ -260,7 +261,6 @@ export async function suggest(q: string, lang = 'en', signal?: AbortSignal): Pro
   if (hit) return hit
   const hits = rankByLevel(await photon(clean, lang, signal))
   const out = hits.filter((h, i) => hits.findIndex((x) => label(x) === label(h)) === i)
-  if (suggestCache.size > 200) suggestCache.clear()
   suggestCache.set(ck, out)
   return out
 }
@@ -308,7 +308,7 @@ export async function search(q: string, lang = 'en', signal?: AbortSignal): Prom
   return []
 }
 
-const revCache = new Map<string, Place | null>()
+const revCache = new LruCache<string, Place | null>(250)
 
 export async function reverse(lat: number, lon: number, lang = 'en', signal?: AbortSignal): Promise<Place | null> {
   const ck = `r:${lat.toFixed(4)},${lon.toFixed(4)}`
@@ -650,7 +650,7 @@ export function parseGdeltDate(s: string): Date {
 }
 
 let gdeltNext = 0
-const gdeltCache = new Map<string, { at: number; rows: Article[] }>()
+const gdeltCache = new LruCache<string, Article[]>(120, 300_000)
 
 /**
  * GDELT DOC 2.0 Global News API — 100 % open, keyless, native browser CORS (`Access-Control-Allow-Origin: *`),
@@ -659,7 +659,7 @@ const gdeltCache = new Map<string, { at: number; rows: Article[] }>()
 async function gdeltHeadlines(query: string, _country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
   const ck = `${query}|${when}`
   const cached = gdeltCache.get(ck)
-  if (cached && Date.now() - cached.at < 300_000) return cached.rows
+  if (cached) return cached
 
   const phrases = [...query.matchAll(/"([^"]+)"/g)].map((m) => m[1])
   const clauses = phrases.length
@@ -698,17 +698,17 @@ async function gdeltHeadlines(query: string, _country: string, when: string, sig
       date: parseGdeltDate(a.seendate ?? ''),
     }))
     .filter((a) => a.url && a.title && !isNaN(+a.date) && !seen.has(a.title) && seen.add(a.title))
-  gdeltCache.set(ck, { at: Date.now(), rows })
+  gdeltCache.set(ck, rows)
   return rows
 }
 
-const headlineMemo = new Map<string, { at: number; rows: Article[] }>()
+const headlineMemo = new LruCache<string, Article[]>(250, 150_000)
 
 async function headlines(query: string, country: string, when: string, signal?: AbortSignal): Promise<Article[]> {
   const mk = `${country}|${when}|${query}`
-  const hit = headlineMemo.get(mk)
+  const hit = headlineMemo.getEntry(mk)
   // the last-hour window is what makes the list fresh, so it is re-asked far more often than the wider windows
-  if (hit && Date.now() - hit.at < (when === '1h' ? 20_000 : 150_000)) return hit.rows
+  if (hit && Date.now() - hit.at < (when === '1h' ? 20_000 : 150_000)) return hit.value
 
   const settled = await Promise.allSettled([
     bingHeadlines(query, country, when, signal),
@@ -718,11 +718,11 @@ async function headlines(query: string, country: string, when: string, signal?: 
   const anySucceeded = settled.some((s) => s.status === 'fulfilled')
   const combined = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
   if (combined.length || anySucceeded) {
-    headlineMemo.set(mk, { at: Date.now(), rows: combined })
+    headlineMemo.set(mk, combined)
     return combined
   }
   const gd = await gdeltHeadlines(query, country, when, signal)
-  headlineMemo.set(mk, { at: Date.now(), rows: gd })
+  headlineMemo.set(mk, gd)
   return gd
 }
 
@@ -744,7 +744,7 @@ async function keyed(query: string, cc: string, signal?: AbortSignal): Promise<A
 }
 
 /** Reddit posts mentioning the place (JSON endpoint first for 100-item pages, selftext & comment counts; Worker fallback). */
-const redditCache = new Map<string, { at: number; rows: Article[] }>()
+const redditCache = new LruCache<string, Article[]>(120, 300_000)
 
 async function reddit(
   query: string,
@@ -756,9 +756,9 @@ async function reddit(
 ): Promise<Article[]> {
   const ck = `${sub}|${sort}|${query}|${after}`
   const hit = redditCache.get(ck)
-  if (hit && Date.now() - hit.at < 300_000) return hit.rows
+  if (hit) return hit
   const rows = await redditFetch(query, max, sub, after, sort, signal)
-  redditCache.set(ck, { at: Date.now(), rows })
+  redditCache.set(ck, rows)
   return rows
 }
 
@@ -1124,7 +1124,7 @@ export function withNearby(exact: Article[], near: Article[], scope: string, wan
   return [...keep, ...extra.slice(0, want - keep.length)].sort((a, b) => +b.date - +a.date)
 }
 
-const newsCache = new Map<string, { at: number; r: { articles: Article[]; scope: string; query: string; exactCount: number } }>()
+const newsCache = new LruCache<string, { articles: Article[]; scope: string; query: string; exactCount: number }>(60)
 
 const NON_LATIN_LANGS = new Set(['th', 'ja', 'ko', 'zh', 'ar', 'he', 'el', 'ru', 'uk', 'bn', 'fa'])
 
@@ -1145,11 +1145,11 @@ export async function news(
   const primary = target(place, from)
   const cc = newsCc(place) ?? 'US'
   const ck = `${primary.queries.join('|')}|${from}|${cc}|${monthsBack}|${want}`
-  const hit = deep ? newsCache.get(ck) : undefined
+  const hit = deep ? newsCache.getEntry(ck) : undefined
   if (hit) {
     onProgress?.(100)
-    onPartial?.(hit.r)
-    if (Date.now() - hit.at < 60_000) return hit.r
+    onPartial?.(hit.value)
+    if (Date.now() - hit.at < 60_000) return hit.value
   }
   onProgress?.(15)
   let ok = 0
@@ -1370,7 +1370,7 @@ export async function news(
     } else if (deep) widened.delete(wideKey)
   }
   const r = { articles, scope: primary.own.name, query: primary.queries[0], exactCount: finalArticles.length }
-  if (deep) newsCache.set(ck, { at: Date.now(), r })
+  if (deep) newsCache.set(ck, r)
   return r
 }
 
@@ -1457,7 +1457,7 @@ export function parseFlashbackDate(raw: string, now = new Date()): Date | null {
 }
 
 let fbNext = 0
-const fbCache = new Map<string, { at: number; rows: Article[] }>()
+const fbCache = new LruCache<string, Article[]>(100, 300_000)
 
 async function flashbackPage(query: string, order: string, searchPosts = false, page = 1, signal?: AbortSignal): Promise<Article[]> {
   if (isLocalProxyBlocked()) throw new Error('err.source')
@@ -1465,7 +1465,7 @@ async function flashbackPage(query: string, order: string, searchPosts = false, 
   const url = `${API}/fb${fbPath}`
   const canonicalFb = `https://www.flashback.org${fbPath}`
   const hit = fbCache.get(url)
-  if (hit && Date.now() - hit.at < 300_000) return hit.rows
+  if (hit) return hit
   const wait = fbNext - Date.now()
   fbNext = Math.max(Date.now(), fbNext) + 2200
   if (wait > 0) await abortableSleep(wait, signal)
@@ -1521,7 +1521,7 @@ async function flashbackPage(query: string, order: string, searchPosts = false, 
         lang: 'sv',
       }]
     })
-    fbCache.set(url, { at: Date.now(), rows: postRows })
+    fbCache.set(url, postRows)
     return postRows
   }
 
@@ -1552,7 +1552,7 @@ async function flashbackPage(query: string, order: string, searchPosts = false, 
       lang: 'sv',
     }]
   })
-  fbCache.set(url, { at: Date.now(), rows })
+  fbCache.set(url, rows)
   return rows
 }
 
@@ -1805,7 +1805,7 @@ export async function translate(list: Article[], lang: string, signal?: AbortSig
   })
 }
 
-const readerCache = new Map<string, { summary?: string; image?: string }>()
+const readerCache = new LruCache<string, { summary?: string; image?: string }>(150)
 
 async function translateSingle(text: string, lang: string): Promise<string> {
   if (!text) return text
@@ -2050,8 +2050,26 @@ export const inQuiet = (q: Quiet | undefined, now = new Date()) => {
   return f <= e ? m >= f && m < e : m >= f || m < e
 }
 
+const LAST_PREFIX = 'newnewz.last.'
+const LAST_INDEX_KEY = 'newnewz.lastIndex'
+const MAX_LAST_PLACES = 10
+
 export const saveLast = (key: string, list: Article[]) => {
-  try { localStorage.setItem(`newnewz.last.${key}`, JSON.stringify(list.slice(0, 60))) } catch { /* full or private mode */ }
+  try {
+    const fullKey = `${LAST_PREFIX}${key}`
+    let index: string[] = []
+    try {
+      const raw = JSON.parse(localStorage.getItem(LAST_INDEX_KEY) ?? '[]')
+      if (Array.isArray(raw)) index = raw.filter((k): k is string => typeof k === 'string')
+    } catch { /* start fresh */ }
+    index = [key, ...index.filter((k) => k !== key)]
+    while (index.length > MAX_LAST_PLACES) {
+      const evicted = index.pop()
+      if (evicted) localStorage.removeItem(`${LAST_PREFIX}${evicted}`)
+    }
+    localStorage.setItem(fullKey, JSON.stringify(list.slice(0, 60)))
+    localStorage.setItem(LAST_INDEX_KEY, JSON.stringify(index))
+  } catch { /* full or private mode */ }
 }
 export const loadLast = (key: string): Article[] | null => {
   try {
